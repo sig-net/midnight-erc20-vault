@@ -510,6 +510,25 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 **NOTE:** The most common reason that a run fails is the proof server hanging or crashing when it exhausts memory on a proving leg. This most often presents as the test failing with `connect ECONNREFUSED 127.0.0.1:6300`, with `docker ps -a` showing the proof server container as `Exited (137)`, i.e. OOM-killed. If this happens, restart the proof server and rerun. With the contract addresses kept in `.env` the rerun skips straight to the flow.
 
+## Releases and Contract Deployment
+
+> **NOTE:** this release and deployment process is a draft under discussion. Expect it to change.
+
+The signet singleton is deployed with **no contract maintenance authority**: the deploy flow samples the maintenance key and drops it (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)), so a deployed singleton can never be upgraded. Every deployment creates a fresh, permanent contract at a new address, and that address reaches integrators only through the SDK: the deploy workflow opens a pull request that records it in the per-network table behind `getSignetContractAddress` in `@sig-net/midnight`, a human reviews it, and the next version bump release publishes it. A new singleton address has these consequences:
+
+- **stagenet, preview, preprod:** client contracts redeploy against the new singleton address. The MPC stops monitoring the old address.
+- **mainnet:** client contracts upgrade their singleton reference to the new address. The MPC keeps monitoring the old address for an announced period.
+
+The flow from a change to a release:
+
+1. Every pull request merges to `dev`.
+2. Release candidates are tagged from `dev` as `v*.*.*-rc.N`, each with an associated GitHub release. The tag push runs [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which publishes the `@sig-net/*` packages to npm under the `rc` dist-tag.
+   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand from that tag to stagenet, preview and preprod. Every deploy yields a new address, so dependent contracts redeploy.
+   - Every other release candidate is an SDK-only npm publish.
+3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched from that tag. Every deploy yields a new address, so dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above).
+
+Two guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), and the deploy workflow refuses a prerelease tag for mainnet.
+
 # Prerequisites
 
 | Prerequisite | Version | Check With | Where to Get It |
