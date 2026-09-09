@@ -77,7 +77,11 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 
 > **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
 >
-> **caip2ChainId** is the id of the chain the request originates from, in [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) form. For signature requests made on Midnight it is the Midnight variant (currently `midnight:testnet`). It is not the target chain id carried in the request record's `caip2Id` field.
+> **caip2ChainId** is the source-chain derivation domain. The MPC uses `midnight:mainnet` for Midnight account and response keys, including on test networks. The SDK exports this value as `MIDNIGHT_MAINNET_CHAIN_ID`. It is independent of the Midnight RPC/network configuration, the destination `caip2Id`, and the EVM transaction chain ID.
+
+**Derivation compatibility:** SDK `0.21.0-rc.6` defaulted to `midnight:testnet`. Correcting the domain changes derived account addresses and response-attestation keys for the same root, caller and path; it does not change the connected network. Recompute expected addresses and response-key pins before adopting the correction. Existing one-shot initialized contracts cannot replace their pins by upgrading the SDK; they require a new deployment or an explicitly supported contract migration. Existing funds remain at their original addresses. Explicit `MIDNIGHT_TESTNET_CHAIN_ID` arguments still mean `midnight:testnet`; consumers intending to match the MPC must use the mainnet derivation domain.
+
+The pinned `fakenet:0.18.0` responder still derives with testnet and is incompatible with these corrected defaults. Its signer must change its explicit account-domain argument and adopt the corrected SDK response helpers together, followed by a compatible image update, before running the fakenet integration suites. Changing RPCs or destination chain IDs cannot resolve this mismatch.
 
 # Integrator Guide
 

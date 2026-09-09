@@ -29,6 +29,8 @@ The [Export highlights](#export-highlights) section lists the specific exports e
 npm install @sig-net/midnight
 ```
 
+Account derivation defaults and both response-key helpers use the MPC's fixed `midnight:mainnet` domain, including on test networks. This changes addresses and response-key pins produced by SDK `0.21.0-rc.6`; network endpoints and EVM chain IDs are unchanged. Read the [derivation compatibility guidance](../../README.md#derived-keys) before upgrading an initialized contract or responder.
+
 ## Documentation
 
 The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):

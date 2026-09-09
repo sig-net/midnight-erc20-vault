@@ -19,10 +19,16 @@ import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 export const EPSILON_DERIVATION_PREFIX = "sig.network v2.0.0 epsilon derivation";
 
 /**
- * CAIP-2 chain id under which the MPC derives keys for requests originating
- * from Midnight contracts.
+ * Explicit Midnight testnet identifier. The MPC's Midnight key derivation
+ * uses {@link MIDNIGHT_MAINNET_CHAIN_ID}, including on test networks.
  */
 export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
+
+/**
+ * Source-chain domain used by the MPC for all Midnight key derivation,
+ * independent of the deployment network or destination EVM chain id.
+ */
+export const MIDNIGHT_MAINNET_CHAIN_ID = "midnight:mainnet";
 
 /**
  * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
@@ -67,14 +73,15 @@ function normaliseRequesterAddress(contractAddress: string): string {
  *   `path: Bytes<32>`: the lowercase hex of the FULL 32 bytes, no `0x`
  *   prefix and no trimming ({@link bytesToHex} of the raw bytes), so
  *   `0xab..00` and `0xab..` derive different accounts.
- * @param chainId - CAIP-2 chain id component of the derivation string.
+ * @param chainId - Source-chain derivation domain; defaults to
+ *   {@link MIDNIGHT_MAINNET_CHAIN_ID}, independently of network configuration.
  * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
  */
 export function deriveEvmAddress(
   mpcSecp256k1PubkeyHex: string,
   contractAddress: string,
   path: string,
-  chainId: string = MIDNIGHT_TESTNET_CHAIN_ID,
+  chainId: string = MIDNIGHT_MAINNET_CHAIN_ID,
 ): string {
   const derivedPoint = deriveChildPoint(
     mpcSecp256k1PubkeyHex,
@@ -94,17 +101,16 @@ export function deriveEvmAddress(
  * @param requester - The requester component of the derivation string,
  *   verbatim (no normalisation: callers must agree on the exact rendering).
  * @param path - The derivation path string.
- * @param chainId - CAIP-2 chain id component of the derivation string.
+ * @param chainId - Source-chain derivation domain; defaults to
+ *   {@link MIDNIGHT_MAINNET_CHAIN_ID}, independently of network configuration.
  * @returns The epsilon scalar, in `[0, n)`.
  */
 export function deriveEpsilon(
   requester: string,
   path: string,
-  chainId: string = MIDNIGHT_TESTNET_CHAIN_ID,
+  chainId: string = MIDNIGHT_MAINNET_CHAIN_ID,
 ): bigint {
   const fullPath = `${EPSILON_DERIVATION_PREFIX}:${chainId}:${requester}:${path}`;
-  // Reduce mod n before using: noble throws on scalars >= n, whereas the
-  // server's scalar arithmetic reduces implicitly.
   return BigInt(keccak256(toUtf8Bytes(fullPath))) % SECP256K1_ORDER;
 }
 
@@ -149,7 +155,7 @@ export function deriveMidnightResponseKey(
     mpcSecp256k1PubkeyHex,
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
-    MIDNIGHT_TESTNET_CHAIN_ID,
+    MIDNIGHT_MAINNET_CHAIN_ID,
   );
   return { x: point.x, y: point.y, identity: false };
 }
@@ -177,7 +183,7 @@ export function deriveMidnightResponseSecretKey(
   const epsilon = deriveEpsilon(
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
-    MIDNIGHT_TESTNET_CHAIN_ID,
+    MIDNIGHT_MAINNET_CHAIN_ID,
   );
   const child = (root + epsilon) % SECP256K1_ORDER;
   if (child === 0n) {

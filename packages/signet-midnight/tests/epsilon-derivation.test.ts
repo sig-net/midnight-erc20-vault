@@ -1,16 +1,18 @@
-// Unit tests for the v2.0.0 epsilon EVM-address derivation, the only scheme the
-// MPC answers. Golden vectors were generated from an independent construction of
-// `caip2_derivation_path` (MPC crypto/src/kdf.rs): the colon-separated string
-// built by hand, keccak'd, then root + epsilon*G with noble. Sharing no code with
-// the implementation is the point: these must not be regenerated from it.
+// Midnight mainnet goldens come from sig-net/mpc at
+// d04faa90078e9fd71ce0523562f3be80311a910f: signet-crypto/src/kdf.rs
+// derive_epsilon_midnight(1, requester, path) and derive_key(root, epsilon).
+// Explicit non-Midnight domains retain independently constructed v2 vectors.
 
 import { describe, expect, it } from "vitest";
 
 import {
   asciiPadded,
   bytesToHex,
+  deriveEpsilon,
   deriveEvmAddress,
   deriveMidnightResponseKey,
+  MIDNIGHT_TESTNET_CHAIN_ID,
+  parseSecp256k1PublicKey,
 } from "../src/index.ts";
 import { deriveMidnightResponseSecretKey, secp256k1PublicKeyOf } from "../src/testing.ts";
 
@@ -29,16 +31,22 @@ interface Case {
 
 const CASES: Case[] = [
   {
-    name: "vault path, default midnight:testnet chain id",
+    name: "explicit testnet domain retains its meaning",
+    path: "vault",
+    chainId: MIDNIGHT_TESTNET_CHAIN_ID,
+    expected: "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
+  },
+  {
+    name: "vault path, default midnight:mainnet chain id",
     path: "vault",
     chainId: undefined,
-    expected: "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
+    expected: "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
   },
   {
     name: "user commitment-hex path, default chain id",
     path: COMMITMENT_HEX,
     chainId: undefined,
-    expected: "0x9865db6544a77649187636fCAcb6b2bBC0eD8393",
+    expected: "0x286BC9Fb1CfBaC876471ee2aF17976b4336Adb65",
   },
   {
     name: "explicit non-default chain id changes the derivation",
@@ -62,7 +70,7 @@ describe("deriveEvmAddress", () => {
       "0x0481e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243" +
       "4fd9fffb61ad2ff6c6423cbd51e2d8d9535fef116d48dfeedce3276db6a53446";
     expect(deriveEvmAddress(uncompressed, CONTRACT_ADDRESS, "vault")).toBe(
-      "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
+      "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
     );
   });
 
@@ -81,8 +89,7 @@ describe("deriveEvmAddress", () => {
 // record's `path: Bytes<32>`: the MPC renders the path as the lowercase hex
 // of the FULL 32 bytes, verbatim (sig-net/mpc chain-midnight convert.rs), so
 // the TS side must reach the same address via bytesToHex. Golden addresses
-// were generated from an independent construction of the derivation string,
-// like the CASES above: never regenerate them from the implementation.
+// come from the Rust implementation cited above.
 describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
   interface PathBytesCase {
     name: string;
@@ -97,7 +104,7 @@ describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
       name: "padded ascii literal pad(32, 'caller-path')",
       pathBytes: asciiPadded("caller-path", 32),
       expectedPathHex: "63616c6c65722d70617468000000000000000000000000000000000000000000",
-      expectedAddress: "0xc68d2d294AbE77eCEdEf1bCAcF2BCd1E49470986",
+      expectedAddress: "0x26c05D12f8147C8428dcda4d263736062BDE5eA4",
     },
     {
       // A commitment-style path: invalid UTF-8, an interior NUL and a
@@ -109,7 +116,7 @@ describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
         0x8f, 0x00,
       ]),
       expectedPathHex: "a1b2c3d4e5f60718fffe005c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f00",
-      expectedAddress: "0x24F74013beEEb823D1E5ff373f665B7F38882B31",
+      expectedAddress: "0xA05732714EBC6c2366F2876CC817c9998efDc789",
     },
   ];
 
@@ -127,6 +134,16 @@ const MPC_ROOT_SECRET = Uint8Array.from(
 const CLIENT_ADDRESS = CONTRACT_ADDRESS;
 
 describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
+  it("matches the Rust response-key vector for the existing test root", () => {
+    const expected = parseSecp256k1PublicKey(
+      "033bd4c0204cec4b87d1d3e15f75051dba7e1e80ffaa3c83853192a41bc18ed8c2",
+    );
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, CLIENT_ADDRESS)).toEqual(expected);
+    expect(
+      secp256k1PublicKeyOf(deriveMidnightResponseSecretKey(MPC_ROOT_SECRET, CLIENT_ADDRESS)),
+    ).toEqual(expected);
+  });
+
   it("secret and public derivations agree: pub(secret) == derived public key", () => {
     const secret = deriveMidnightResponseSecretKey(MPC_ROOT_SECRET, CLIENT_ADDRESS);
     expect(secp256k1PublicKeyOf(secret)).toEqual(
@@ -156,6 +173,32 @@ describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
   it("rejects a root secret key that is not 32 bytes", () => {
     expect(() => deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS)).toThrow(
       /32 bytes/,
+    );
+  });
+});
+
+// Public inputs of finalized request
+// 2a95e3ce147aad36e5130a36212f23229fc26d1436489eeb8b7f0e8a1f895f00 (key version 1).
+// Rust derives compressed account key
+// 02bda4b9bb7ea05b081b192e746bd125249d9e2e8cdaf471716fa4a2d527f84edc.
+describe("Rust Midnight derivation vectors for a finalized request", () => {
+  const root = "0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61";
+  const caller = "31c8a27a2695895ec40b491fedc5859aa2126cfb53f7e3d0fd0a24644d7d0478";
+  const path = "2c7c21ecc735a55758c5a807139676ca3e26dba44afca9f89bd2de8cde91e000";
+
+  it("matches the Rust epsilon without an explicit domain", () => {
+    expect(deriveEpsilon(caller, path)).toBe(
+      0x72fe94620a962f09f532cc35f222cbe6367dda1e3e919b4a6e210d05d227bf1dn,
+    );
+  });
+
+  it("matches the Rust account address without an explicit domain", () => {
+    expect(deriveEvmAddress(root, caller, path)).toBe("0xDC0D4c682AA48518E47a54D76B253258f01FdEb4");
+  });
+
+  it("matches the Rust response key using the literal response path", () => {
+    expect(deriveMidnightResponseKey(root, caller)).toEqual(
+      parseSecp256k1PublicKey("032f79a948af713852c136f8ad8ed5594dccfd731709ec108893dba9ebf37c9b5c"),
     );
   });
 });
