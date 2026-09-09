@@ -2302,8 +2302,8 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.3"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.3"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.21.0-rc.6"
-    "@sig-net/midnight-contract": "npm:^0.21.0-rc.6"
+    "@sig-net/midnight": "npm:^0.21.0-rc.7"
+    "@sig-net/midnight-contract": "npm:^0.21.0-rc.7"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     effect: "npm:^3.22.1"
@@ -2313,13 +2313,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-contract@npm:^0.21.0-rc.6, @sig-net/midnight-contract@workspace:packages/signet-contract":
+"@sig-net/midnight-contract@npm:^0.21.0-rc.7, @sig-net/midnight-contract@workspace:packages/signet-contract":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-contract@workspace:packages/signet-contract"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.19.0"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.7"
-    "@sig-net/midnight": "npm:^0.21.0-rc.6"
+    "@sig-net/midnight": "npm:^0.21.0-rc.7"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     typescript: "npm:^7.0.2"
@@ -2327,7 +2327,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:^0.21.0-rc.6, @sig-net/midnight-serde@workspace:*, @sig-net/midnight-serde@workspace:packages/midnight-serde":
+"@sig-net/midnight-serde@npm:^0.21.0-rc.7, @sig-net/midnight-serde@workspace:*, @sig-net/midnight-serde@workspace:packages/midnight-serde":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
   dependencies:
@@ -2339,14 +2339,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight@npm:^0.21.0-rc.6, @sig-net/midnight@workspace:*, @sig-net/midnight@workspace:packages/signet-midnight":
+"@sig-net/midnight@npm:^0.21.0-rc.7, @sig-net/midnight@workspace:*, @sig-net/midnight@workspace:packages/signet-midnight":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight@workspace:packages/signet-midnight"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.19.0"
     "@midnight-ntwrk/midnight-js-types": "npm:5.0.0-beta.7"
     "@noble/curves": "npm:^2.2.0"
-    "@sig-net/midnight-serde": "npm:^0.21.0-rc.6"
+    "@sig-net/midnight-serde": "npm:^0.21.0-rc.7"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     ethers: "npm:^6.17.0"
