@@ -1,6 +1,5 @@
 // Mainnet vectors: sig-net/mpc@d04faa90078e9fd71ce0523562f3be80311a910f,
 // signet-crypto/src/kdf.rs: derive_epsilon_midnight(1, ...) and derive_key.
-// Other domains use independently constructed v2 vectors.
 
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +9,6 @@ import {
   deriveEpsilon,
   deriveEvmAddress,
   deriveMidnightResponseKey,
-  MIDNIGHT_TESTNET_CHAIN_ID,
   parseSecp256k1PublicKey,
 } from "../src/index.ts";
 import { deriveMidnightResponseSecretKey, secp256k1PublicKeyOf } from "../src/testing.ts";
@@ -24,43 +22,25 @@ const COMMITMENT_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c
 interface Case {
   name: string;
   path: string;
-  chainId: string | undefined;
   expected: string;
 }
 
 const CASES: Case[] = [
   {
-    name: "explicit testnet domain retains its meaning",
+    name: "vault path",
     path: "vault",
-    chainId: MIDNIGHT_TESTNET_CHAIN_ID,
-    expected: "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
-  },
-  {
-    name: "vault path, default midnight:mainnet chain id",
-    path: "vault",
-    chainId: undefined,
     expected: "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
   },
   {
-    name: "user commitment-hex path, default chain id",
+    name: "user commitment-hex path",
     path: COMMITMENT_HEX,
-    chainId: undefined,
     expected: "0x286BC9Fb1CfBaC876471ee2aF17976b4336Adb65",
-  },
-  {
-    name: "explicit non-default chain id changes the derivation",
-    path: "vault",
-    chainId: "eip155:11155111",
-    expected: "0x11F95e6098FC53fD106506F8b42726990b176348",
   },
 ];
 
 describe("deriveEvmAddress", () => {
-  it.each(CASES)("$name", ({ path, chainId, expected }) => {
-    const address = chainId
-      ? deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path, chainId)
-      : deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path);
-    expect(address).toBe(expected);
+  it.each(CASES)("$name", ({ path, expected }) => {
+    expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path)).toBe(expected);
   });
 
   it("accepts the uncompressed form of the same root public key", () => {
@@ -84,11 +64,7 @@ describe("deriveEvmAddress", () => {
   });
 });
 
-// Cross-implementation vectors for accounts derived from an on-ledger
-// record's `path: Bytes<32>`: the MPC renders the path as the lowercase hex
-// of the FULL 32 bytes, verbatim (sig-net/mpc chain-midnight convert.rs), so
-// the TS side must reach the same address via bytesToHex. Golden addresses
-// come from the Rust implementation cited above.
+// Ledger paths use lowercase hex of all 32 bytes, including padding.
 describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
   interface PathBytesCase {
     name: string;
@@ -183,13 +159,13 @@ describe("Rust Midnight derivation vectors for a finalized request", () => {
   const caller = "31c8a27a2695895ec40b491fedc5859aa2126cfb53f7e3d0fd0a24644d7d0478";
   const path = "2c7c21ecc735a55758c5a807139676ca3e26dba44afca9f89bd2de8cde91e000";
 
-  it("matches the Rust epsilon without an explicit domain", () => {
+  it("matches the Rust epsilon", () => {
     expect(deriveEpsilon(caller, path)).toBe(
       0x72fe94620a962f09f532cc35f222cbe6367dda1e3e919b4a6e210d05d227bf1dn,
     );
   });
 
-  it("matches the Rust account address without an explicit domain", () => {
+  it("matches the Rust account address", () => {
     expect(deriveEvmAddress(root, caller, path)).toBe("0xDC0D4c682AA48518E47a54D76B253258f01FdEb4");
   });
 

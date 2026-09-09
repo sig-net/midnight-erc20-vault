@@ -77,11 +77,11 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 
 > **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
 >
-> **caip2ChainId** is the source-chain derivation domain. The MPC uses `midnight:mainnet` for Midnight account and response keys, including on test networks. The SDK exports this value as `MIDNIGHT_MAINNET_CHAIN_ID`. It is independent of the Midnight RPC/network configuration, the destination `caip2Id`, and the EVM transaction chain ID.
+> **caip2ChainId** is fixed to `midnight:mainnet` (`MIDNIGHT_MAINNET_CHAIN_ID`), independent of RPC settings and destination chain IDs.
 
-**Derivation compatibility:** SDK `0.21.0-rc.6` defaulted to `midnight:testnet`. Correcting the domain changes derived account addresses and response-attestation keys for the same root, caller and path; it does not change the connected network. Recompute expected addresses and response-key pins before adopting the correction. Existing one-shot initialized contracts cannot replace their pins by upgrading the SDK; they require a new deployment or an explicitly supported contract migration. Existing funds remain at their original addresses. Explicit `MIDNIGHT_TESTNET_CHAIN_ID` arguments still mean `midnight:testnet`; consumers intending to match the MPC must use the mainnet derivation domain.
+**Derivation compatibility:** Upgrading from `0.21.0-rc.6` changes derived addresses and response-key pins. Remove explicit domain arguments and recompute both; contracts with fixed pins need redeployment or a supported migration. Existing funds stay at their original addresses.
 
-The pinned `fakenet:0.18.0` responder still derives with testnet and is incompatible with these corrected defaults. Its signer must change its explicit account-domain argument and adopt the corrected SDK response helpers together, followed by a compatible image update, before running the fakenet integration suites. Changing RPCs or destination chain IDs cannot resolve this mismatch.
+The pinned `fakenet:0.18.0` needs updated SDK imports, derivation calls, and a compatible image before integration tests can run with this SDK.
 
 # Integrator Guide
 

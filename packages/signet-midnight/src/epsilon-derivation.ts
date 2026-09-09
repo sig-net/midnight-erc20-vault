@@ -12,40 +12,22 @@ import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codec
 import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 
 /**
- * Domain prefix of the sig-net v2.0.0 epsilon derivation scheme. The full
- * derivation string is `<prefix>:<chainId>:<requester>:<path>` (colon-separated),
- * matching `caip2_derivation_path` in the MPC's `crypto/src/kdf.rs`.
+ * Prefix for the MPC's v2.0.0 epsilon derivation.
  */
 export const EPSILON_DERIVATION_PREFIX = "sig.network v2.0.0 epsilon derivation";
 
 /**
- * Explicit testnet domain; MPC derivation uses {@link MIDNIGHT_MAINNET_CHAIN_ID}.
- */
-export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
-
-/**
- * MPC derivation domain for Midnight, including test networks.
+ * Fixed Midnight derivation domain, independent of the connected network.
  */
 export const MIDNIGHT_MAINNET_CHAIN_ID = "midnight:mainnet";
 
 /**
- * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
- * for Midnight client contracts. It enters the derivation string verbatim,
- * mirroring the real MPC's per-chain `<chain> response key` convention
- * (sig-net/mpc chain-signatures/node/src/respond_bidirectional.rs). The
- * response key is derived PER CLIENT CONTRACT from (the client contract's
- * own address, this path): it is not the MPC root key and not the key that
- * signs the requested transaction. Client contracts pin its hash with a
- * one-shot `initialise` circuit after deploy and verify
- * RespondBidirectionalEvents against the pin.
+ * Literal response-key path, used with each client contract's address.
  */
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
- * Normalise a Midnight contract address for use as the requester component
- * of the derivation string: strip an optional `0x` prefix and lowercase.
- * Both sides of the protocol (the deploy pinning a key and the MPC signing
- * with it) derive through this, so the rendering always agrees.
+ * Normalise a contract address for derivation.
  *
  * @param contractAddress - The Midnight contract address, with or without `0x`.
  * @returns The address as lowercase hex with no prefix.
@@ -55,58 +37,36 @@ function normaliseRequesterAddress(contractAddress: string): string {
 }
 
 /**
- * Derive the EVM address the MPC network signs from for a given Midnight
- * contract and derivation path, using the sig-net v2.0.0 epsilon scheme:
- * `epsilon = keccak256("<prefix>:<chainId>:<requester>:<path>")` and
- * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1. The MPC
- * treats `path` as an opaque string.
+ * Derive the MPC signing address for a Midnight contract and path.
  *
- * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
- *   (compressed or uncompressed, normalised internally).
- * @param contractAddress - The Midnight contract address the request
- *   originates from (`0x` prefix optional, case-insensitive: it enters the
- *   derivation string through {@link normaliseRequesterAddress}).
- * @param path - The derivation path string. For an account derived from an
- *   on-ledger request record, this is the MPC's rendering of the record's
- *   `path: Bytes<32>`: the lowercase hex of the FULL 32 bytes, no `0x`
- *   prefix and no trimming ({@link bytesToHex} of the raw bytes), so
- *   `0xab..00` and `0xab..` derive different accounts.
- * @param chainId - Derivation domain; defaults to {@link MIDNIGHT_MAINNET_CHAIN_ID}.
+ * @param mpcSecp256k1PubkeyHex - Root public key in compressed or uncompressed hex.
+ * @param contractAddress - Requesting contract address; prefix and case are normalised.
+ * @param path - Opaque path string. For ledger requests, use lowercase hex of all
+ *   32 path bytes, without a prefix or trimming (see {@link bytesToHex}).
  * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
  */
 export function deriveEvmAddress(
   mpcSecp256k1PubkeyHex: string,
   contractAddress: string,
   path: string,
-  chainId: string = MIDNIGHT_MAINNET_CHAIN_ID,
 ): string {
   const derivedPoint = deriveChildPoint(
     mpcSecp256k1PubkeyHex,
     normaliseRequesterAddress(contractAddress),
     path,
-    chainId,
   );
   return computeAddress(`0x${derivedPoint.toHex(false)}`);
 }
 
 /**
- * The epsilon scalar of the sig-net v2.0.0 derivation scheme:
- * `keccak256("<prefix>:<chainId>:<requester>:<path>")` reduced mod the
- * secp256k1 curve order. Child keys are `root + epsilon` (secret side) and
- * `rootPubKey + epsilon * G` (public side).
+ * Hash `<prefix>:midnight:mainnet:<requester>:<path>` modulo the secp256k1 order.
  *
- * @param requester - The requester component of the derivation string,
- *   verbatim (no normalisation: callers must agree on the exact rendering).
+ * @param requester - Requester string, used verbatim without normalisation.
  * @param path - The derivation path string.
- * @param chainId - Derivation domain; defaults to {@link MIDNIGHT_MAINNET_CHAIN_ID}.
  * @returns The epsilon scalar, in `[0, n)`.
  */
-export function deriveEpsilon(
-  requester: string,
-  path: string,
-  chainId: string = MIDNIGHT_MAINNET_CHAIN_ID,
-): bigint {
-  const fullPath = `${EPSILON_DERIVATION_PREFIX}:${chainId}:${requester}:${path}`;
+export function deriveEpsilon(requester: string, path: string): bigint {
+  const fullPath = `${EPSILON_DERIVATION_PREFIX}:${MIDNIGHT_MAINNET_CHAIN_ID}:${requester}:${path}`;
   return BigInt(keccak256(toUtf8Bytes(fullPath))) % SECP256K1_ORDER;
 }
 
@@ -116,26 +76,17 @@ export function deriveEpsilon(
  * @param mpcSecp256k1PubkeyHex - The MPC root public key in SEC1 hex.
  * @param requester - The normalised requester address.
  * @param path - The derivation path component.
- * @param chainId - The chain id component.
  * @returns The derived child point on secp256k1.
  */
-function deriveChildPoint(
-  mpcSecp256k1PubkeyHex: string,
-  requester: string,
-  path: string,
-  chainId: string,
-) {
-  const epsilon = deriveEpsilon(requester, path, chainId);
+function deriveChildPoint(mpcSecp256k1PubkeyHex: string, requester: string, path: string) {
+  const epsilon = deriveEpsilon(requester, path);
   const rootPubKeyHex = SigningKey.computePublicKey(mpcSecp256k1PubkeyHex, false);
   const rootPoint = secp256k1.Point.fromHex(rootPubKeyHex.slice(2));
   return epsilon === 0n ? rootPoint : rootPoint.add(secp256k1.Point.BASE.multiply(epsilon));
 }
 
 /**
- * Derive the MPC's respond-bidirectional RESPONSE key for one client
- * contract, public side: what the client pins via its `initialise` circuit
- * and what response verification checks against. See
- * {@link MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH} for the scheme.
+ * Derive the response public key a client contract pins for attestation verification.
  *
  * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
  *   (compressed or uncompressed).
@@ -151,16 +102,12 @@ export function deriveMidnightResponseKey(
     mpcSecp256k1PubkeyHex,
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
-    MIDNIGHT_MAINNET_CHAIN_ID,
   );
   return { x: point.x, y: point.y, identity: false };
 }
 
 /**
- * Derive the MPC's respond-bidirectional RESPONSE key for one client
- * contract, secret side: `(rootSecret + epsilon) mod n`. MPC-side only
- * (the fakenet signer, test harnesses): a real client never holds the root
- * key.
+ * Derive a client's response secret key for signers and test harnesses.
  *
  * @param mpcRootSecretKey - The 32-byte MPC root secret key (big-endian).
  * @param clientContractAddress - The client contract's Midnight address
@@ -179,7 +126,6 @@ export function deriveMidnightResponseSecretKey(
   const epsilon = deriveEpsilon(
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
-    MIDNIGHT_MAINNET_CHAIN_ID,
   );
   const child = (root + epsilon) % SECP256K1_ORDER;
   if (child === 0n) {

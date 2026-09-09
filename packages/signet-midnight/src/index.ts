@@ -26,7 +26,6 @@ export {
   EPSILON_DERIVATION_PREFIX,
   MIDNIGHT_MAINNET_CHAIN_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
-  MIDNIGHT_TESTNET_CHAIN_ID,
 } from "./epsilon-derivation.ts";
 export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 export * from "./signature-requests-state-reader.ts";
