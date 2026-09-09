@@ -105,7 +105,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
         setNetworkId(nodeConfig.networkId);
         const keys = deriveAccountKeys(requireEnv(env, "INVOKER_SEED"), nodeConfig.networkId);
         const facade = await initialiseWalletFacade(keys, nodeConfig);
-        await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+        await facade.start(keys.seeds);
         await facade.waitForSyncedState();
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");

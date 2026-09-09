@@ -77,7 +77,7 @@ a serializable type"):
 The `Uint<0..n>` upper bound is EXCLUSIVE, per the language reference: the
 values are 0 to n - 1, so `Uint<0..1000>` is 2 bytes and `Uint<8>` is the same
 type as `Uint<0..256>`. An enum is `Uint<0..variants>` under the hood. That
-width rule makes some legal types ZERO bytes wide: `Uint<0..1>`,
+width rule makes some legal types ZERO bytes wide: `Uint<0>`, `Uint<0..1>`,
 single-variant enums, `Bytes<0>`, `Vector<0, T>`, the empty tuple and the
 empty struct all occupy no space (circuit-pinned).
 
@@ -124,7 +124,7 @@ decode refuses to materialise more than 65536 zero-width vector elements
 (`Vector<huge, Nothing>` decodes from no input at all, so a hostile
 descriptor could otherwise hang the process on an empty buffer).
 
-Known compactc 0.33 limits (pinned by the tests): `serialize<T, N>` crashes
+Known compactc 0.34 limits (pinned by the tests): `serialize<T, N>` crashes
 the COMPILER on vectors of structs, vectors of vectors, and struct nesting
 deeper than one level. `deserialize<T, N>` handles all of those, so contracts
 can still READ such payloads from off-chain encoders. Tuples are unaffected:

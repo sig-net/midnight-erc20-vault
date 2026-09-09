@@ -70,7 +70,8 @@ function randType(rng: Rng, depth: number): CompactType {
     case "field":
       return { kind: "field" };
     case "uintBits":
-      return { kind: "uint", bits: randInt(rng, 1, 248) };
+      // Widths across the whole legal range, including the zero-width Uint<0>.
+      return { kind: "uint", bits: randInt(rng, 0, 248) };
     case "uintBound": {
       // Bounds across the whole legal range, including the zero-width bound 1.
       const bits = randInt(rng, 0, 248);

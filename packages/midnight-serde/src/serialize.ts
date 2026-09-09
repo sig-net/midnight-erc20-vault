@@ -1,12 +1,12 @@
 // Byte-exact twin of Compact's builtin `serialize<T, N>` from
 // CompactStandardLibrary, pinned against compiled circuits by tests/.
 //
-// Layout rules (compactc 0.33 / language 0.25):
+// Layout rules (compactc 0.34 / language 0.26):
 //   - struct fields and tuple elements are packed in declaration order, no
 //     alignment gaps
 //   - every value is little-endian at its NATURAL width (see src/types.ts);
 //     bounded uints and enums are as wide as their largest legal value, which
-//     makes `Uint<0..1>` and single-variant enums ZERO bytes wide
+//     makes `Uint<0>`, `Uint<0..1>` and single-variant enums ZERO bytes wide
 //   - `serialize<T, N>` places the packed value at the START of `Bytes<N>` and
 //     zero-pads on the right; N below the packed size is a compile error, and
 //     this module throws on the same condition.

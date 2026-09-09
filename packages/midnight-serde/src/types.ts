@@ -14,7 +14,7 @@
  */
 export const FIELD_MODULUS = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n;
 
-/** Maximum `Uint` width accepted by compactc 0.33 (bits). */
+/** Maximum `Uint` width accepted by compactc 0.34 (bits). */
 export const MAX_UINT_BITS = 248;
 
 /**
@@ -28,7 +28,11 @@ export interface CompactBooleanType {
   readonly kind: "boolean";
 }
 
-/** Compact `Uint<bits>` (sized): ceil(bits / 8) bytes little-endian, bits 1..248. */
+/**
+ * Compact `Uint<bits>` (sized): ceil(bits / 8) bytes little-endian, bits
+ * 0..248. `Uint<0>` is the same type as `Uint<0..1>`: it holds only 0 and is
+ * ZERO bytes wide (circuit-pinned).
+ */
 export interface CompactSizedUintType {
   readonly kind: "uint";
   readonly bits: number;

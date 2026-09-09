@@ -3,7 +3,10 @@
 // encoding and WalletFacade wiring. Pure crypto + facade construction — no
 // network I/O happens here (the facade connects only when started).
 import * as ledger from "@midnightntwrk/ledger-v9";
-import { InMemoryTransactionHistoryStorage } from "@midnightntwrk/wallet-sdk-abstractions";
+import {
+  InMemoryTransactionHistoryStorage,
+  WalletTransaction,
+} from "@midnightntwrk/wallet-sdk-abstractions";
 import {
   DustAddress,
   MidnightBech32m,
@@ -20,7 +23,7 @@ import {
   WalletEntrySchema,
   WalletFacade,
 } from "@midnightntwrk/wallet-sdk-facade";
-import { HDWallet, Roles } from "@midnightntwrk/wallet-sdk-hd";
+import { WalletSeeds } from "@midnightntwrk/wallet-sdk-hd";
 import { ShieldedWallet } from "@midnightntwrk/wallet-sdk-shielded";
 import {
   createKeystore,
@@ -47,7 +50,11 @@ export type { EncPublicKey } from "@midnightntwrk/ledger-v9";
 
 /** The live key material for one account. Reused for signing / balancing. */
 export interface AccountKeys {
+  /** The three per-wallet seeds the facade and its sub-wallets start from. */
+  seeds: WalletSeeds;
+  /** The shielded key pair the seeds derive: its coin and encryption public keys identify the account. */
   shieldedSecretKeys: ledger.ZswapSecretKeys;
+  /** The dust key the seeds derive: its public key is the dust address. */
   dustSecretKey: ledger.DustSecretKey;
   unshieldedKeystore: UnshieldedKeystore;
 }
@@ -95,35 +102,27 @@ export interface WalletFacadeOptions {
 }
 
 /**
- * Parse a seed and derive the three role keys (Zswap / NightExternal / Dust).
- * Pure crypto — no network. This is the step that exercises the ledger WASM.
+ * Parse a seed and derive the three per-wallet seeds (Zswap / NightExternal /
+ * Dust roles at account 0, address index 0) plus the keys read off them.
+ * Pure crypto, no network. This is the step that exercises the ledger WASM.
  *
  * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
  * @param networkId - The network the unshielded keystore is bound to.
- * @returns The Zswap, Dust and unshielded role keys.
- * @throws {Error} If the seed is rejected by the HD wallet or key derivation fails.
+ * @returns The per-wallet seeds and the Zswap, Dust and unshielded keys.
+ * @throws {SeedDerivationError} If the seed cannot be walked to the three role seeds.
  */
 export function deriveAccountKeys(seed: string, networkId: NetworkId): AccountKeys {
   const { seed: seedBytes } = parseSeed(seed);
+  const seeds = WalletSeeds.fromMasterSeed(seedBytes);
 
-  const hd = HDWallet.fromSeed(seedBytes);
-  if (hd.type !== "seedOk") throw new Error("HDWallet.fromSeed failed (seedError).");
-
-  const derived = hd.hdWallet
-    .selectAccount(0)
-    .selectRoles([Roles.Zswap, Roles.NightExternal, Roles.Dust])
-    .deriveKeysAt(0);
-  if (derived.type !== "keysDerived") throw new Error("deriveKeysAt failed (keyOutOfBounds).");
-  hd.hdWallet.clear();
-
-  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(derived.keys[Roles.Zswap]);
-  const dustSecretKey = ledger.DustSecretKey.fromSeed(derived.keys[Roles.Dust]);
+  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(seeds.shielded);
+  const dustSecretKey = ledger.DustSecretKey.fromSeed(seeds.dust);
   const unshieldedKeystore = createKeystore(
-    { kind: "schnorr", secret: derived.keys[Roles.NightExternal] },
+    { kind: "schnorr", secret: seeds.unshielded },
     networkId,
   );
 
-  return { shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+  return { seeds, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
 }
 
 /**
@@ -178,16 +177,12 @@ export function initialiseWalletFacade(
         mergeWalletEntries,
       ),
     },
-    shielded: (cfg) => ShieldedWallet(cfg).startWithSecretKeys(keys.shieldedSecretKeys),
+    shielded: (cfg) => ShieldedWallet(cfg).startWithSeed(keys.seeds.shielded),
     unshielded: (cfg) =>
       UnshieldedWallet(cfg).startWithPublicKey(
         UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
       ),
-    dust: (cfg) =>
-      DustWallet(cfg).startWithSecretKey(
-        keys.dustSecretKey,
-        ledger.LedgerParameters.initialParameters().dust,
-      ),
+    dust: (cfg) => DustWallet(cfg).startWithSeed(keys.seeds.dust),
   });
 }
 
@@ -257,21 +252,20 @@ export async function submitUnprovenTransaction(
   keys: AccountKeys,
   serializedTransaction: Uint8Array,
 ): Promise<TransactionIdentifier> {
-  // Deserialize back into the ledger UnprovenTransaction the facade balances.
+  // Deserialize back into the ledger UnprovenTransaction the facade balances,
+  // stamped with the protocol version the wallet is currently authoring for.
   const tx = ledger.Transaction.deserialize<
     ledger.SignatureEnabled,
     ledger.PreProof,
     ledger.PreBinding
   >("signature", "pre-proof", "pre-binding", serializedTransaction);
+  const { activeProtocolVersion } = await facade.waitForSyncedState();
+  const unproven = WalletTransaction.adopt("Unproven", tx, activeProtocolVersion);
 
   // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
   console.log("balancing and signing transaction...");
   const recipe = await balanceWhileDustGenerates(facade, () =>
-    facade.balanceUnprovenTransaction(
-      tx,
-      { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
-      { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
-    ),
+    facade.balanceUnprovenTransaction(unproven, { ttl: new Date(Date.now() + RECIPE_TTL_MS) }),
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   console.log("proving transaction (proof server, can take minutes)...");
@@ -316,7 +310,6 @@ export async function transferNight(
   const recipe = await balanceWhileDustGenerates(facade, () =>
     facade.transferTransaction(
       [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
-      { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
       { ttl: new Date(Date.now() + RECIPE_TTL_MS), payFees: true },
     ),
   );
@@ -412,7 +405,7 @@ export async function withSyncedWalletFacade<T>(
   options: WalletFacadeOptions = {},
 ): Promise<T> {
   const facade = await initialiseWalletFacade(keys, config, options);
-  await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+  await facade.start(keys.seeds);
   try {
     console.log(`syncing wallet (indexer: ${config.indexerUrl})...`);
     const state = await facade.waitForSyncedState();

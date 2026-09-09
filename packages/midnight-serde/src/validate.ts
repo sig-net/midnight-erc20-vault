@@ -96,11 +96,11 @@ export function assertCompactType(type: unknown, label = "type"): asserts type i
         if (
           typeof bits !== "number" ||
           !Number.isInteger(bits) ||
-          bits < 1 ||
+          bits < 0 ||
           bits > MAX_UINT_BITS
         ) {
           throw new Error(
-            `${label}: uint bits must be an integer in 1..${String(MAX_UINT_BITS)}, got ${JSON.stringify(bits)}`,
+            `${label}: uint bits must be an integer in 0..${String(MAX_UINT_BITS)}, got ${JSON.stringify(bits)}`,
           );
         }
         return;
