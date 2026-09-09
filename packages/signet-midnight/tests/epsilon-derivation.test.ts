@@ -1,7 +1,6 @@
-// Midnight mainnet goldens come from sig-net/mpc at
-// d04faa90078e9fd71ce0523562f3be80311a910f: signet-crypto/src/kdf.rs
-// derive_epsilon_midnight(1, requester, path) and derive_key(root, epsilon).
-// Explicit non-Midnight domains retain independently constructed v2 vectors.
+// Mainnet vectors: sig-net/mpc@d04faa90078e9fd71ce0523562f3be80311a910f,
+// signet-crypto/src/kdf.rs: derive_epsilon_midnight(1, ...) and derive_key.
+// Other domains use independently constructed v2 vectors.
 
 import { describe, expect, it } from "vitest";
 
@@ -177,10 +176,8 @@ describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
   });
 });
 
-// Public inputs of finalized request
-// 2a95e3ce147aad36e5130a36212f23229fc26d1436489eeb8b7f0e8a1f895f00 (key version 1).
-// Rust derives compressed account key
-// 02bda4b9bb7ea05b081b192e746bd125249d9e2e8cdaf471716fa4a2d527f84edc.
+// Finalized request (key version 1):
+// 2a95e3ce147aad36e5130a36212f23229fc26d1436489eeb8b7f0e8a1f895f00.
 describe("Rust Midnight derivation vectors for a finalized request", () => {
   const root = "0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61";
   const caller = "31c8a27a2695895ec40b491fedc5859aa2126cfb53f7e3d0fd0a24644d7d0478";

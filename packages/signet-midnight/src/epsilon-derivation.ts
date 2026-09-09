@@ -19,14 +19,12 @@ import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 export const EPSILON_DERIVATION_PREFIX = "sig.network v2.0.0 epsilon derivation";
 
 /**
- * Explicit Midnight testnet identifier. The MPC's Midnight key derivation
- * uses {@link MIDNIGHT_MAINNET_CHAIN_ID}, including on test networks.
+ * Explicit testnet domain; MPC derivation uses {@link MIDNIGHT_MAINNET_CHAIN_ID}.
  */
 export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
 
 /**
- * Source-chain domain used by the MPC for all Midnight key derivation,
- * independent of the deployment network or destination EVM chain id.
+ * MPC derivation domain for Midnight, including test networks.
  */
 export const MIDNIGHT_MAINNET_CHAIN_ID = "midnight:mainnet";
 
@@ -73,8 +71,7 @@ function normaliseRequesterAddress(contractAddress: string): string {
  *   `path: Bytes<32>`: the lowercase hex of the FULL 32 bytes, no `0x`
  *   prefix and no trimming ({@link bytesToHex} of the raw bytes), so
  *   `0xab..00` and `0xab..` derive different accounts.
- * @param chainId - Source-chain derivation domain; defaults to
- *   {@link MIDNIGHT_MAINNET_CHAIN_ID}, independently of network configuration.
+ * @param chainId - Derivation domain; defaults to {@link MIDNIGHT_MAINNET_CHAIN_ID}.
  * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
  */
 export function deriveEvmAddress(
@@ -101,8 +98,7 @@ export function deriveEvmAddress(
  * @param requester - The requester component of the derivation string,
  *   verbatim (no normalisation: callers must agree on the exact rendering).
  * @param path - The derivation path string.
- * @param chainId - Source-chain derivation domain; defaults to
- *   {@link MIDNIGHT_MAINNET_CHAIN_ID}, independently of network configuration.
+ * @param chainId - Derivation domain; defaults to {@link MIDNIGHT_MAINNET_CHAIN_ID}.
  * @returns The epsilon scalar, in `[0, n)`.
  */
 export function deriveEpsilon(
