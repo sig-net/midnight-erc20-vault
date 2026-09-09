@@ -484,11 +484,11 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | `@midnight-ntwrk/compact-runtime` | 0.19.0 | [`package.json`](package.json) resolutions, [`packages/*/package.json`](packages) |
 | `@midnight-ntwrk/compact-js` | 2.5.5-rc.8 | [`packages/signet-contract-deploy/package.json`](packages/signet-contract-deploy/package.json) |
 | `@midnight-ntwrk/midnight-js` | 5.0.0-beta.7 | [`packages/*/package.json`](packages) |
-| `@midnightntwrk/wallet-sdk-*` | facade 5.0.0-beta.3 line | [`packages/signet-contract-deploy/package.json`](packages/signet-contract-deploy/package.json) |
-| `@midnightntwrk/ledger-v9` | 1.0.0-rc.4 | [`package.json`](package.json) resolutions |
-| Midnight node | 2.1.0-beta.1 | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/wallet-sdk-*` | facade 5.0.0-beta.2 line | [`packages/signet-contract-deploy/package.json`](packages/signet-contract-deploy/package.json) |
+| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.0-rc.2 | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight proof server | 9.0.0-rc.6 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.19.0` is built against 0.21.0-rc.7 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
