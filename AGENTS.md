@@ -78,10 +78,10 @@ exception for that specific case.
   is not deprecated (from the `yarn npm info` above), and after install
   `yarn npm audit` reports no new advisory. The compact toolchain is likewise
   PINNED, not floating: the launcher (`compact-v0.5.1`) and the compiler
-  (`compactc 0.33.0-rc.2`) are fetched by EXACT URL in the CI/publish workflows,
-  which set `0.33.0-rc.2` as the launcher default; the compile scripts call
+  (`compactc 0.34.0`) are fetched by EXACT URL in the CI/publish workflows,
+  which set `0.34.0` as the launcher default; the compile scripts call
   `compact compile` against that default, so locally you must pin the same default
-  (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
+  (`compact update 0.34.0`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
   keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and

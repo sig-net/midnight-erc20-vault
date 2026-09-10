@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight-serde",
-  "version": "0.21.0-rc.6",
+  "version": "0.21.0-rc.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -33,7 +33,7 @@
     }
   },
   "devDependencies": {
-    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@midnight-ntwrk/compact-runtime": "0.19.0",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^7.0.2",

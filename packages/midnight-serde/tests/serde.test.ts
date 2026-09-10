@@ -168,9 +168,11 @@ const TUPLE_PAIR = {
 } as const satisfies CompactType;
 
 // Width edge cases with their own fixture circuits: a NON-BYTE-ALIGNED sized
-// uint (2 bytes, decode-rejected at 4096), a 3-byte bounded uint, the
-// zero-width single-variant enum and empty tuple, and a TWO-byte enum.
+// uint (2 bytes, decode-rejected at 4096), the zero-width sized Uint<0>, a
+// 3-byte bounded uint, the zero-width single-variant enum and empty tuple,
+// and a TWO-byte enum.
 const U12 = { kind: "uint", bits: 12 } as const satisfies CompactType;
+const U0 = { kind: "uint", bits: 0 } as const satisfies CompactType;
 const WIDE = { kind: "uint", bound: 70000 } as const satisfies CompactType;
 const SOLO = { kind: "enum", variants: 1 } as const satisfies CompactType;
 const EMPTY_TUPLE = { kind: "tuple", elements: [] } as const satisfies CompactType;
@@ -285,6 +287,7 @@ const SHAPES: [string, CompactType, CompactValue][] = [
   ["tuple", TUPLE, tupleValue],
   ["tuple with struct", TUPLE_PAIR, tuplePairValue],
   ["Uint<12> (non-byte-aligned)", U12, 4095n],
+  ["Uint<0> (zero-width)", U0, 0n],
   ["Uint<0..70000> (3 bytes)", WIDE, 69999n],
   ["single-variant enum (zero-width)", SOLO, 0],
   ["empty tuple (zero-width)", EMPTY_TUPLE, []],
@@ -343,6 +346,7 @@ describe("compactSerializedSize matches the compiler", () => {
     expect(compactSerializedSize(TUPLE)).toBe(7);
     expect(compactSerializedSize(TUPLE_PAIR)).toBe(25);
     expect(compactSerializedSize(U12)).toBe(2);
+    expect(compactSerializedSize(U0)).toBe(0);
     expect(compactSerializedSize(WIDE)).toBe(3);
     expect(compactSerializedSize(SOLO)).toBe(0);
     expect(compactSerializedSize(EMPTY_TUPLE)).toBe(0);
@@ -353,6 +357,7 @@ describe("compactSerializedSize matches the compiler", () => {
 
   it("zero-size shapes really are zero bytes", () => {
     expect(compactSerializedSize({ kind: "uint", bound: 1 })).toBe(0);
+    expect(compactSerializedSize({ kind: "uint", bits: 0 })).toBe(0);
     expect(compactSerializedSize({ kind: "enum", variants: 1 })).toBe(0);
     expect(compactSerializedSize({ kind: "bytes", length: 0 })).toBe(0);
     expect(compactSerializedSize({ kind: "tuple", elements: [] })).toBe(0);
@@ -439,6 +444,12 @@ describe("compactSerialize equals the compiled circuits byte for byte", () => {
     expect(hex(compactSerialize(U12, 4095n, 2))).toBe(hex(pureCircuits.serU12(4095n)));
     expect(hex(pureCircuits.serU12(4095n))).toBe("ff0f");
     expect(hex(compactSerialize(U12, 0n, 2))).toBe(hex(pureCircuits.serU12(0n)));
+  });
+
+  it("Uint<0>: ZERO bytes, so Bytes<1> is pure padding", () => {
+    expect(hex(compactSerialize(U0, 0n, 1))).toBe(hex(pureCircuits.serU0(0n)));
+    expect(hex(pureCircuits.serU0(0n))).toBe("00");
+    expect(() => compactSerialize(U0, 1n)).toThrow(/exceeds Uint<0>/);
   });
 
   it("Uint<0..70000>: 3-byte bounded width (byteLength(69999))", () => {
@@ -673,6 +684,8 @@ describe("padding", () => {
   it("zero-width shapes are ALL padding: the circuit ignores the whole buffer", () => {
     expect(pureCircuits.deSolo(Uint8Array.of(0xff))).toBe(0);
     expect(pureCircuits.deEmptyTuple(Uint8Array.of(0xff))).toEqual([]);
+    expect(pureCircuits.deU0(Uint8Array.of(0xff))).toBe(0n);
+    expect(compactDeserialize(U0, Uint8Array.of(0xff), { ignorePadding: true })).toBe(0n);
     expect(compactDeserialize(SOLO, Uint8Array.of(0xff), { ignorePadding: true })).toBe(0);
     expect(() => compactDeserialize(SOLO, Uint8Array.of(0xff))).toThrow(/non-zero padding/);
   });
@@ -1000,9 +1013,9 @@ describe("strict runtime descriptor validation (TypeScript is not enough)", () =
   });
 
   it("rejects out-of-range and non-integer widths and lengths", () => {
-    expect(() => compactSerializedSize(bad({ kind: "uint", bits: 0 }))).toThrow(/1\.\.248/);
-    expect(() => compactSerializedSize(bad({ kind: "uint", bits: 249 }))).toThrow(/1\.\.248/);
-    expect(() => compactSerializedSize(bad({ kind: "uint", bits: 8.5 }))).toThrow(/1\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: "uint", bits: -1 }))).toThrow(/0\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: "uint", bits: 249 }))).toThrow(/0\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: "uint", bits: 8.5 }))).toThrow(/0\.\.248/);
     expect(() => compactSerializedSize(bad({ kind: "bytes", length: -1 }))).toThrow(
       /non-negative safe integer/,
     );

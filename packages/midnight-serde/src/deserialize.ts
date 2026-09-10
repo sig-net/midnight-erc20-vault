@@ -36,7 +36,7 @@ export interface CompactDeserializeOptions {
   lenientBooleans?: boolean;
 }
 
-// Zero-width elements (empty structs/tuples, `Uint<0..1>`, single-variant
+// Zero-width elements (empty structs/tuples, `Uint<0>`, `Uint<0..1>`, single-variant
 // enums, `Bytes<0>`) consume no input, so a vector of them decodes purely
 // from the descriptor: a validated-but-hostile `Vector<10^15, Nothing>`
 // would loop forever on an EMPTY buffer. No real circuit is anywhere near

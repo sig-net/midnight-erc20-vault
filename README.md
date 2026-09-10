@@ -112,7 +112,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    COMPACT_PATH=node_modules compact compile --feature-zkir-v3 src/my-contract.compact src/managed/my-contract
    ```
 
-   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`, as above.
+   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.34.0`) and always pass `--feature-zkir-v3`, as above.
 
 3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification that your contract emits declares the stored request's id and carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
@@ -437,9 +437,9 @@ Two end to end suites run against the local docker stack. The generic suite driv
    ```sh
    corepack enable
    yarn install
-   compact update 0.33.0-rc.2   # Exact version required.
-                                # `compact update` installs/downgrades
-                                # to stable.
+   compact update 0.34.0        # Exact version required: a bare
+                                # `compact update` tracks the channel's
+                                # latest stable and drifts from this pin.
    yarn compile
    ```
 3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract is deployed.
@@ -464,7 +464,7 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 | ------- | ------| ------  |----------- |
 | Node | ≥ 20 (22+ recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
-| Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Compact toolchain | compiler 0.34.0, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.34.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.34.0` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). [.github/workflows/ci.yml](.github/workflows/ci.yml) pins the same build by URL and checksum |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
@@ -478,15 +478,19 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.21.0-rc.6 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.18.0` | [`docker-compose.yaml`](docker-compose.yaml) |
-| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
-| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@sig-net/*` npm packages | 0.21.0-rc.8 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.20.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| Compact compiler | 0.34.0, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
+| `@midnight-ntwrk/compact-runtime` | 0.19.0 | [`package.json`](package.json) resolutions, [`packages/*/package.json`](packages) |
+| `@midnight-ntwrk/compact-js` | 2.5.5-rc.8 | [`packages/signet-contract-deploy/package.json`](packages/signet-contract-deploy/package.json) |
+| `@midnight-ntwrk/midnight-js` | 5.0.0-beta.7 | [`packages/*/package.json`](packages) |
+| `@midnightntwrk/wallet-sdk-*` | facade 5.0.0-beta.2 line | [`packages/signet-contract-deploy/package.json`](packages/signet-contract-deploy/package.json) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.0-rc.2 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 
-**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.18.0` is built against 0.21.0-rc.1 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.20.0` is built against 0.21.0-rc.8 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
 # Packages
 
