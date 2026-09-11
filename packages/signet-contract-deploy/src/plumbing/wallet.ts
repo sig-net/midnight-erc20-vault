@@ -325,18 +325,44 @@ export async function transferNight(
   return facade.submitTransaction(finalized);
 }
 
+// A first-time registration pays its own fee out of the dust its NIGHT UTXOs
+// have generated since they landed, and the facade refuses to build one
+// while that dust is short of the fee, naming the fee it needs.
+const INSUFFICIENT_GENERATED_DUST =
+  /Insufficient generated dust to cover registration fee .*need (\d+)/;
+
+/**
+ * The registration fee a facade refusal names, when the refusal is the
+ * "insufficient generated dust" one.
+ *
+ * @param error - What `registerNightUtxosForDustGeneration` threw.
+ * @returns The fee in DUST base units, or undefined for any other error.
+ */
+export function requiredGeneratedDust(error: unknown): bigint | undefined {
+  const match = INSUFFICIENT_GENERATED_DUST.exec(String(error));
+  const fee = match?.[1];
+  return fee === undefined ? undefined : BigInt(fee);
+}
+
+// How long a fresh NIGHT UTXO may take to generate its own registration fee.
+const GENERATED_DUST_TIMEOUT_MS = 5 * 60 * 1000;
+
 /**
  * Register every NIGHT UTXO not yet registered for dust generation, so the
  * wallet can pay transaction fees (fees are paid in DUST, which only
  * generates on registered NIGHT). Registers ONLY unregistered UTXOs — the
  * node rejects a re-registration of an already-registered one — and submits
- * nothing when there is nothing new to register.
+ * nothing when there is nothing new to register. A UTXO that landed moments
+ * ago has not yet generated the registration's own fee: the facade refuses
+ * naming the fee, and this waits for exactly that amount to generate before
+ * registering again.
  *
  * @param facade - A started wallet facade for `keys` (builds, proves and submits the registration).
  * @param keys - The key material of the same wallet; its unshielded keystore signs the registration.
  * @param state - The synced facade state to read the NIGHT UTXOs from.
  * @returns How many NIGHT UTXOs this call registered (0 = nothing unregistered, including no NIGHT at all).
- * @throws {Error} If the node rejects the registration transaction.
+ * @throws {Error} If the fee does not generate within {@link GENERATED_DUST_TIMEOUT_MS}, or
+ *   the node rejects the registration transaction.
  */
 export async function registerNightForDustGeneration(
   facade: WalletFacade,
@@ -351,11 +377,24 @@ export async function registerNightForDustGeneration(
   // Register → finalize (prove) → submit. The registration segments are
   // signed inside registerNightUtxosForDustGeneration via the keystore
   // callback; no separate signRecipe step.
-  const recipe = await facade.registerNightUtxosForDustGeneration(
-    unregistered,
-    keys.unshieldedKeystore.getPublicKey(),
-    keys.unshieldedKeystore.signDataAsync,
-  );
+  const register = () =>
+    facade.registerNightUtxosForDustGeneration(
+      unregistered,
+      keys.unshieldedKeystore.getPublicKey(),
+      keys.unshieldedKeystore.signDataAsync,
+    );
+  let recipe: Awaited<ReturnType<typeof register>>;
+  try {
+    recipe = await register();
+  } catch (error) {
+    const fee = requiredGeneratedDust(error);
+    if (fee === undefined) throw error;
+    console.log(
+      `the NIGHT has not yet generated the ${String(fee)} DUST its registration costs, waiting...`,
+    );
+    await facade.waitForGeneratedDust(unregistered, fee, { timeoutMs: GENERATED_DUST_TIMEOUT_MS });
+    recipe = await register();
+  }
   const finalized = await facade.finalizeRecipe(recipe);
   await facade.submitTransaction(finalized);
   return unregistered.length;
