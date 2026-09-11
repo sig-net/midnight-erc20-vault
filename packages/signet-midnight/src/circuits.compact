@@ -10,6 +10,7 @@ import "./Signet";
 
 export {
   constructSignBidirectionalEventNotificationV1,
+  ethereumCaip2Id,
   evmAddressAbiWord,
   numericAbiWord,
   boolAbiWord,

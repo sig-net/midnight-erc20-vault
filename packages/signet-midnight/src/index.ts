@@ -24,7 +24,7 @@ export {
   deriveEvmAddress,
   deriveMidnightResponseKey,
   EPSILON_DERIVATION_PREFIX,
-  MIDNIGHT_MAINNET_CHAIN_ID,
+  MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
 } from "./epsilon-derivation.ts";
 export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";

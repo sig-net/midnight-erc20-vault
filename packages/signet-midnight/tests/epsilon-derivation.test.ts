@@ -16,7 +16,7 @@ import {
   deriveMidnightResponseKey,
   EPSILON_DERIVATION_PREFIX,
   hexToBytes,
-  MIDNIGHT_MAINNET_CHAIN_ID,
+  MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
   parseSecp256k1PublicKey,
 } from "../src/index.ts";
@@ -215,7 +215,7 @@ describe("agrees with the MPC's midnight-epsilon golden fixture", () => {
 
   it("pins the fixture's constants", () => {
     expect(EPSILON_DERIVATION_PREFIX).toBe("sig.network v2.0.0 epsilon derivation");
-    expect(MIDNIGHT_MAINNET_CHAIN_ID).toBe("midnight:mainnet");
+    expect(MIDNIGHT_CAIP2_ID).toBe("midnight:mainnet");
     expect(MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH).toBe("midnight response key");
   });
 

@@ -16,7 +16,6 @@ import { describe, expect, it } from "vitest";
 import {
   abiWordToBool,
   abiWordToUint128,
-  asciiPadded,
   assembleCalldata,
   bytesToHex,
   evmAddressAbiWord,
@@ -26,6 +25,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
+  pureCircuits,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
   signBidirectionalEventToSignedEvmTransaction,
@@ -256,7 +256,7 @@ const REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: asciiPadded("eip155:11155111", 32),
+  caip2Id: pureCircuits.ethereumCaip2Id(),
   outputDeserializationSchema: new Uint8Array(34),
   respondSerializationSchema: new Uint8Array(34),
 };

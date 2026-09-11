@@ -29,7 +29,7 @@ export const EPSILON_DERIVATION_PREFIX = "sig.network v2.0.0 epsilon derivation"
  * (sig-net/mpc signet-primitives/src/chain.rs), so it never varies with the
  * network a contract is deployed on.
  */
-export const MIDNIGHT_MAINNET_CHAIN_ID = "midnight:mainnet";
+export const MIDNIGHT_CAIP2_ID = "midnight:mainnet";
 
 /**
  * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
@@ -94,7 +94,7 @@ export function deriveEvmAddress(
  * The epsilon scalar of the sig-net v2.0.0 derivation scheme:
  * `keccak256("<prefix>:midnight:mainnet:<requester>:<path>")` reduced mod
  * the secp256k1 curve order, the chain id fixed to
- * {@link MIDNIGHT_MAINNET_CHAIN_ID}. Child keys are `root + epsilon` (secret side) and
+ * {@link MIDNIGHT_CAIP2_ID}. Child keys are `root + epsilon` (secret side) and
  * `rootPubKey + epsilon * G` (public side).
  *
  * @param requester - The requester component of the derivation string,
@@ -103,7 +103,7 @@ export function deriveEvmAddress(
  * @returns The epsilon scalar, in `[0, n)`.
  */
 export function deriveEpsilon(requester: string, path: string): bigint {
-  const fullPath = `${EPSILON_DERIVATION_PREFIX}:${MIDNIGHT_MAINNET_CHAIN_ID}:${requester}:${path}`;
+  const fullPath = `${EPSILON_DERIVATION_PREFIX}:${MIDNIGHT_CAIP2_ID}:${requester}:${path}`;
   // Reduce mod n before using: noble throws on scalars >= n, whereas the
   // server's scalar arithmetic reduces implicitly.
   return BigInt(keccak256(toUtf8Bytes(fullPath))) % SECP256K1_ORDER;
