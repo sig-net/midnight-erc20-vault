@@ -312,7 +312,7 @@ module Signet {
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    return upgradeFromTransient(transientHash<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]));
+    return upgradeFromTransient(transientHash<[RequestId, Uint<64>, Bytes<serializedOutputLength>]>([requestId, serializedOutputLength as Uint<64>, serializedOutput]));
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
