@@ -414,11 +414,161 @@ export async function withSyncedWalletFacade<T>(
   const facade = await initialiseWalletFacade(keys, config, options);
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
   try {
-    console.log(`syncing wallet (indexer: ${config.indexerUrl})...`);
-    const state = await facade.waitForSyncedState();
-    console.log("wallet synced");
+    const state = await waitForSyncedStateLogging(facade, "wallet", config);
     return await fn(facade, state);
   } finally {
     await facade.stop().catch(() => undefined);
+  }
+}
+
+// How often a sync in progress reports itself.
+const SYNC_HEARTBEAT_MS = 10_000;
+
+/**
+ * One sub-wallet's sync position as "applied/highest", the two indices every
+ * sub-wallet's progress record carries under its own field names.
+ *
+ * @param applied - The index the sub-wallet has applied up to.
+ * @param highest - The highest index the indexer reports.
+ * @returns The position, with a percentage once the highest index is known.
+ */
+function syncPosition(applied: bigint, highest: bigint): string {
+  if (highest <= 0n) return `${String(applied)}/?`;
+  return `${String(applied)}/${String(highest)} (${String((applied * 100n) / highest)}%)`;
+}
+
+/**
+ * Wait for a started facade to report itself synced, logging a heartbeat
+ * every {@link SYNC_HEARTBEAT_MS} with the elapsed time and each sub-wallet's
+ * position, so a long first sync on a deployed network shows it is moving.
+ *
+ * @param facade - The started facade to wait on.
+ * @param label - The wallet's name in the log lines (its role, e.g. `root`).
+ * @param config - The stack the facade syncs against, named in the first line.
+ * @returns The synced state.
+ */
+async function waitForSyncedStateLogging(
+  facade: WalletFacade,
+  label: string,
+  config: MidnightNodeConfig,
+): Promise<FacadeState> {
+  const started = Date.now();
+  const elapsed = (): string => `${String(Math.round((Date.now() - started) / 1000))}s`;
+  console.log(`syncing ${label} wallet (indexer: ${config.indexerUrl})...`);
+  let latest: FacadeState | undefined;
+  const subscription = facade.state().subscribe({
+    next: (state) => {
+      latest = state;
+    },
+  });
+  const heartbeat = setInterval(() => {
+    const position =
+      latest === undefined
+        ? "no state yet"
+        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestIndex)}, ` +
+          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestIndex)}, ` +
+          `unshielded ${syncPosition(latest.unshielded.progress.appliedId, latest.unshielded.progress.highestTransactionId)}`;
+    console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
+  }, SYNC_HEARTBEAT_MS);
+  try {
+    const state = await facade.waitForSyncedState();
+    console.log(`${label} wallet synced in ${elapsed()}`);
+    return state;
+  } finally {
+    clearInterval(heartbeat);
+    subscription.unsubscribe();
+  }
+}
+
+/** A wallet a {@link WalletRegistry} holds started and synced. */
+export interface RegisteredWallet {
+  /** The wallet's role name, as logged. */
+  readonly label: string;
+  /** The wallet's key material, for balancing and signing. */
+  readonly keys: AccountKeys;
+  /** The started facade. Later `waitForSyncedState()` calls catch it up incrementally. */
+  readonly facade: WalletFacade;
+}
+
+/**
+ * The dedup key a {@link WalletRegistry} files a seed under: its normalised
+ * hex, so two spellings of one seed (0x-prefixed, upper case, a mnemonic and
+ * its derived hex) share a facade.
+ *
+ * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
+ * @returns The seed's normalised hex.
+ * @throws {ParseError} If the seed parses as neither form.
+ */
+export function walletRegistryKey(seed: string): string {
+  return parseSeed(seed).source.seedHex;
+}
+
+/**
+ * One started, synced facade per wallet for the life of a pipeline: the
+ * first request for a seed builds, starts and fully syncs its facade (the
+ * expensive step on a deployed network, where a fresh facade scans the chain
+ * from nothing), every later request returns the same running facade, whose
+ * `waitForSyncedState()` only catches up incrementally. {@link close} stops
+ * every facade once, at the end.
+ */
+export class WalletRegistry {
+  private readonly wallets = new Map<string, Promise<RegisteredWallet>>();
+
+  /**
+   * @param config - The stack every facade in the registry connects to.
+   * @param options - Facade tuning passed to every facade built here.
+   */
+  constructor(
+    readonly config: MidnightNodeConfig,
+    private readonly options: WalletFacadeOptions = {},
+  ) {}
+
+  /**
+   * The started, synced wallet for `seed`, built on first request.
+   *
+   * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
+   * @param label - The wallet's role name, used in the sync log lines.
+   * @returns The registered wallet.
+   * @throws {Error} Whatever building, starting or syncing the facade throws. The
+   *   failed entry is dropped, so a later request retries.
+   */
+  wallet(seed: string, label: string): Promise<RegisteredWallet> {
+    const key = walletRegistryKey(seed);
+    const existing = this.wallets.get(key);
+    if (existing !== undefined) return existing;
+    const opened = this.open(seed, label).catch((error: unknown) => {
+      this.wallets.delete(key);
+      throw error;
+    });
+    this.wallets.set(key, opened);
+    return opened;
+  }
+
+  private async open(seed: string, label: string): Promise<RegisteredWallet> {
+    const keys = deriveAccountKeys(seed, this.config.networkId);
+    const facade = await initialiseWalletFacade(keys, this.config, this.options);
+    await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+    try {
+      await waitForSyncedStateLogging(facade, label, this.config);
+    } catch (error) {
+      await facade.stop().catch(() => undefined);
+      throw error;
+    }
+    return { label, keys, facade };
+  }
+
+  /**
+   * Stop every facade the registry opened. Safe to call more than once and
+   * with nothing opened.
+   */
+  async close(): Promise<void> {
+    const opened = [...this.wallets.values()];
+    this.wallets.clear();
+    await Promise.all(
+      opened.map(async (pending) => {
+        const wallet = await pending.catch(() => undefined);
+        await wallet?.facade.stop().catch(() => undefined);
+      }),
+    );
   }
 }

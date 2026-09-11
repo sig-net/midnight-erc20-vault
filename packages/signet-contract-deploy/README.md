@@ -35,6 +35,8 @@ const { contractAddress, txId } = await deploySignetContract(process.env);
 
 The generic plumbing (network config, wallets, funding, transaction submission) is exported from the package root as well, for deploy scripts of other Compact contracts.
 
+A pipeline that touches several wallets, or one wallet several times, holds them in a `WalletRegistry`: the first request for a seed builds, starts and fully syncs its facade (on a deployed network a fresh facade scans the chain from nothing, and the sync logs a heartbeat with each sub-wallet's position every ten seconds), every later request returns the same running facade, and `close()` stops them all once. `deploySignetContract(env, wallets)` and the funding primitives (`assertRootFunded`, `readAccountFunding`, `fundChildFromRoot`) take the registry. Without one, `deploySignetContract` opens a private registry for its single wallet and closes it after.
+
 ## Deploying from CI
 
 The [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository deploys the singleton through its manually dispatched `deploy` workflow, which picks a network and a release tag and runs this flow on a runner with a local proof server.

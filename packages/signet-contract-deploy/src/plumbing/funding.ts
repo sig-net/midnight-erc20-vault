@@ -7,8 +7,10 @@
 // are generated per environment and topped up from root.
 //
 // These are mechanical primitives (read a balance, assert root is funded,
-// fund one child). The pipeline that resolves/persists seeds, decides the
-// per-child amount, and prints addresses lives in the integration-tests setup.
+// fund one child) over a WalletRegistry, so every wallet syncs once and is
+// reused across the checks and transfers. The pipeline that resolves/persists
+// seeds, decides the per-child amount, and prints addresses lives in the
+// integration-tests setup.
 
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
@@ -22,8 +24,11 @@ import {
   waitForSpendableDust,
   type WalletAddresses,
   type WalletFacade,
-  withSyncedWalletFacade,
+  type WalletRegistry,
 } from "./wallet.ts";
+
+/** The registry's root wallet label, shared by every primitive that logs it. */
+const ROOT_LABEL = "root";
 
 /** A wallet's synced funding snapshot: its addresses and NIGHT/DUST balances (base units). */
 export interface AccountFunding {
@@ -58,25 +63,26 @@ export function deriveWalletAddresses(seed: string, config: MidnightNodeConfig):
 }
 
 /**
- * Sync a wallet and read its funding snapshot (addresses + NIGHT + DUST).
+ * Read a wallet's funding snapshot (addresses + NIGHT + DUST) from its synced
+ * state, syncing it first if the registry has not opened it yet.
  *
- * @param config - The stack the wallet connects to.
+ * @param wallets - The registry holding the wallet.
  * @param seed - The wallet seed (hex or mnemonic).
+ * @param label - The wallet's role name, for the sync log.
  * @returns The synced {@link AccountFunding}.
  */
 export async function readAccountFunding(
-  config: MidnightNodeConfig,
+  wallets: WalletRegistry,
   seed: string,
+  label: string,
 ): Promise<AccountFunding> {
-  const keys = deriveAccountKeys(seed, config.networkId);
-  const addresses = deriveAddresses(keys, config.networkId);
-  return withSyncedWalletFacade(keys, config, (_facade, state) =>
-    Promise.resolve({
-      addresses,
-      night: totalNight(state),
-      dust: state.dust.balance(new Date()),
-    }),
-  );
+  const { facade, keys } = await wallets.wallet(seed, label);
+  const state = await facade.waitForSyncedState();
+  return {
+    addresses: deriveAddresses(keys, wallets.config.networkId),
+    night: totalNight(state),
+    dust: state.dust.balance(new Date()),
+  };
 }
 
 /**
@@ -176,7 +182,7 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
  * {@link ensureFeeReady}: a faucet-funded root needs its NIGHT registered for
  * dust generation before it holds any spendable DUST.
  *
- * @param config - The stack the root wallet connects to.
+ * @param wallets - The registry holding the root wallet.
  * @param rootSeed - The root wallet seed.
  * @param faucetUrl - The network's faucet URL for the underfunded message.
  * @returns The root's fee-ready funding snapshot.
@@ -186,28 +192,28 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
  *   this is a plain error, not a funding stop.
  */
 export async function assertRootFunded(
-  config: MidnightNodeConfig,
+  wallets: WalletRegistry,
   rootSeed: string,
   faucetUrl: string | undefined,
 ): Promise<AccountFunding> {
-  const keys = deriveAccountKeys(rootSeed, config.networkId);
-  const addresses = deriveAddresses(keys, config.networkId);
-  return withSyncedWalletFacade(keys, config, async (facade, state) => {
-    let night = totalNight(state);
-    if (night === 0n && isLocalStandaloneNetwork(config.networkId)) {
-      const deadline = Date.now() + GENESIS_INDEX_TIMEOUT_MS;
-      while (night === 0n && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, GENESIS_INDEX_POLL_INTERVAL_MS));
-        state = await facade.waitForSyncedState();
-        night = totalNight(state);
-      }
+  const { networkId } = wallets.config;
+  const { facade, keys } = await wallets.wallet(rootSeed, ROOT_LABEL);
+  const addresses = deriveAddresses(keys, networkId);
+  let state = await facade.waitForSyncedState();
+  let night = totalNight(state);
+  if (night === 0n && isLocalStandaloneNetwork(networkId)) {
+    const deadline = Date.now() + GENESIS_INDEX_TIMEOUT_MS;
+    while (night === 0n && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, GENESIS_INDEX_POLL_INTERVAL_MS));
+      state = await facade.waitForSyncedState();
+      night = totalNight(state);
     }
-    if (night === 0n) {
-      throw new WalletUnfundedError(addresses.unshielded, faucetUrl);
-    }
-    const dust = await ensureFeeReady(facade, keys, state, config.networkId, faucetUrl);
-    return { addresses, night, dust };
-  });
+  }
+  if (night === 0n) {
+    throw new WalletUnfundedError(addresses.unshielded, faucetUrl);
+  }
+  const dust = await ensureFeeReady(facade, keys, state, networkId, faucetUrl);
+  return { addresses, night, dust };
 }
 
 /**
@@ -217,53 +223,49 @@ export async function assertRootFunded(
  * no dust yet is only registered and waited on (no transfer). Call only for a
  * child that is not already fee-ready.
  *
- * @param config - The stack both wallets connect to.
+ * @param wallets - The registry holding both wallets.
  * @param rootSeed - The funding wallet's seed.
  * @param childSeed - The child wallet's seed.
+ * @param childLabel - The child's role name, for the sync log.
  * @param amount - NIGHT to transfer when the child holds none, in base units.
  * @returns The child's post-funding snapshot.
  * @throws {Error} If root cannot cover the transfer, or dust never appears in time.
  */
 export async function fundChildFromRoot(
-  config: MidnightNodeConfig,
+  wallets: WalletRegistry,
   rootSeed: string,
   childSeed: string,
+  childLabel: string,
   amount: bigint,
 ): Promise<AccountFunding> {
-  const rootKeys = deriveAccountKeys(rootSeed, config.networkId);
-  const childKeys = deriveAccountKeys(childSeed, config.networkId);
-  const childAddresses = deriveAddresses(childKeys, config.networkId);
+  const { networkId } = wallets.config;
+  const child = await wallets.wallet(childSeed, childLabel);
+  const childAddresses = deriveAddresses(child.keys, networkId);
+  let state = await child.facade.waitForSyncedState();
 
-  const before = await withSyncedWalletFacade(childKeys, config, (_f, s) =>
-    Promise.resolve(totalNight(s)),
-  );
-
-  if (before === 0n) {
-    await withSyncedWalletFacade(rootKeys, config, async (rootFacade, rootState) => {
-      await transferNight(
-        rootFacade,
-        rootKeys,
-        rootState,
-        childAddresses.unshielded,
-        config.networkId,
-        amount,
-      );
-    });
+  if (totalNight(state) === 0n) {
+    const root = await wallets.wallet(rootSeed, ROOT_LABEL);
+    const rootState = await root.facade.waitForSyncedState();
+    await transferNight(
+      root.facade,
+      root.keys,
+      rootState,
+      childAddresses.unshielded,
+      networkId,
+      amount,
+    );
   }
 
-  return withSyncedWalletFacade(childKeys, config, async (childFacade, childState) => {
-    // Wait for the transferred NIGHT UTXO to land in the child's synced view.
-    let state = childState;
-    for (let i = 0; i < 40 && totalNight(state) === 0n; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
-      state = await childFacade.waitForSyncedState();
-    }
-    if (totalNight(state) === 0n) {
-      throw new Error(
-        `child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`,
-      );
-    }
-    const dust = await ensureFeeReady(childFacade, childKeys, state, config.networkId);
-    return { addresses: childAddresses, night: totalNight(state), dust };
-  });
+  // Wait for the transferred NIGHT UTXO to land in the child's synced view.
+  for (let i = 0; i < 40 && totalNight(state) === 0n; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    state = await child.facade.waitForSyncedState();
+  }
+  if (totalNight(state) === 0n) {
+    throw new Error(
+      `child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`,
+    );
+  }
+  const dust = await ensureFeeReady(child.facade, child.keys, state, networkId);
+  return { addresses: childAddresses, night: totalNight(state), dust };
 }

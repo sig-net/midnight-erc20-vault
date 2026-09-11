@@ -13,6 +13,7 @@
 // (early: fast and midnight-free) and funds the caller's derived EVM sender
 // (last: the derivation needs the deployed caller's address).
 
+import { getMidnightNodeConfig, WalletRegistry } from "@sig-net/midnight-contract-deploy";
 import type { TestProject } from "vitest/node";
 
 import { buildBaseEnv } from "../e2e-env.ts";
@@ -40,7 +41,10 @@ import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
  * Step names are what the operator greps for and what STEP_THROUGH
  * prompts show.
  */
-const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
+const STEPS: [
+  name: string,
+  run: (env: NodeJS.ProcessEnv, wallets: WalletRegistry) => void | Promise<void>,
+][] = [
   ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
   [
     "setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)",
@@ -74,15 +78,22 @@ export async function setup(project: TestProject): Promise<void> {
   if (!process.env.RUN_INTEGRATION_TESTS) return;
 
   const env = buildBaseEnv();
-  for (const [index, [name, run]] of STEPS.entries()) {
-    // Step-through mode pauses before each step after the first, exactly as
-    // the flow files pause before each test (globalSetup runs in the main
-    // process, where /dev/tty is just as reachable as in a worker).
-    if (process.env.STEP_THROUGH && index > 0) {
-      await waitForGo(index + 1, STEPS.length, name);
+  // One started facade per role wallet for the whole pipeline: the funding
+  // step syncs each once, the deploy steps reuse them, and all stop here.
+  const wallets = new WalletRegistry(getMidnightNodeConfig(env));
+  try {
+    for (const [index, [name, run]] of STEPS.entries()) {
+      // Step-through mode pauses before each step after the first, exactly as
+      // the flow files pause before each test (globalSetup runs in the main
+      // process, where /dev/tty is just as reachable as in a worker).
+      if (process.env.STEP_THROUGH && index > 0) {
+        await waitForGo(index + 1, STEPS.length, name);
+      }
+      testHeader(index + 1, STEPS.length, name);
+      await run(env, wallets);
     }
-    testHeader(index + 1, STEPS.length, name);
-    await run(env);
+  } finally {
+    await wallets.close();
   }
 
   // Hand the accumulator to the flow-test worker. provide() requires
