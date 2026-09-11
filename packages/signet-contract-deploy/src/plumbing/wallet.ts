@@ -30,7 +30,7 @@ import {
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
 
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
-import type { NetworkId } from "./network-id.ts";
+import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import { parseSeed } from "./seed.ts";
 
 // Consumers hold facades/states we hand them without adding the wallet-sdk
@@ -59,39 +59,98 @@ export interface WalletAddresses {
   dust: string;
 }
 
-/**
- * Default `additionalFeeOverhead` the facade balances transactions with: it
- * burns `feesWithMargin(params, feeBlocksMargin) + additionalFeeOverhead`
- * per transaction, so the overhead is burned as dust on EVERY submitted
- * transaction.
- *
- * The overhead compensates for the wallet sdk pricing a PROOF-ERASED
- * transaction while the node prices the real proof bytes. The node's fee
- * consequently exceeds the wallet's estimate by an amount that grows with
- * proof size, and the node rejects the spend with
- * Malformed(BalanceCheckOverspend) when the wallet under-provides. 5e13
- * covers the gap this repo's circuits produce, with headroom, and the excess
- * is simply burned dust. The default is tuned for local fakenet chains where
- * dust is free: real-network deploys may want a lower value (see
- * {@link WalletFacadeOptions}).
- */
-export const DEFAULT_ADDITIONAL_FEE_OVERHEAD = 50_000_000_000_000n;
+// The facade balances every submitted transaction with
+// `feesWithMargin(params, FEE_BLOCKS_MARGIN) + additionalFeeOverhead`, so the
+// overhead is burned as dust on EVERY transaction. It compensates for the
+// wallet sdk pricing a PROOF-ERASED transaction while the node prices the
+// real proof bytes: the node's fee exceeds the wallet's estimate by an amount
+// that grows with proof size, and the node rejects the spend with
+// Malformed(BalanceCheckOverspend) when the wallet under-provides. The local
+// standalone chain's dust is free, so its overhead covers the gap this
+// repo's circuits produce with headroom. A deployed network's dust is scarce
+// (faucet-funded NIGHT generates it slowly), so its overhead is zero: raise
+// it for a network whose node rejects a spend with
+// Malformed(BalanceCheckOverspend).
+const UNDEPLOYED_ADDITIONAL_FEE_OVERHEAD = 50_000_000_000_000n;
+const DEPLOYED_ADDITIONAL_FEE_OVERHEAD = 0n;
 
 // Fee margin in blocks the facade balances with, alongside the overhead.
 const FEE_BLOCKS_MARGIN = 5;
 
 /**
+ * The `additionalFeeOverhead` a facade balances with when its
+ * {@link WalletFacadeOptions} name none: 5e13 on the local standalone chain,
+ * whose dust is free, and 0 on every deployed network, whose dust is scarce.
+ *
+ * @param networkId - The network the facade connects to.
+ * @returns The overhead burned as dust on top of every transaction's estimated fee.
+ */
+export function defaultAdditionalFeeOverhead(networkId: NetworkId): bigint {
+  return isLocalStandaloneNetwork(networkId)
+    ? UNDEPLOYED_ADDITIONAL_FEE_OVERHEAD
+    : DEPLOYED_ADDITIONAL_FEE_OVERHEAD;
+}
+
+/**
  * Optional tuning knobs for {@link initialiseWalletFacade} (and
- * {@link withSyncedWalletFacade}, which passes them through).
+ * {@link withSyncedWalletFacade} and {@link WalletRegistry}, which pass them
+ * through).
  */
 export interface WalletFacadeOptions {
   /**
    * Flat fee overhead added on top of the estimated fee of every submitted
    * transaction, burned as dust each time. Defaults to
-   * {@link DEFAULT_ADDITIONAL_FEE_OVERHEAD} (5e13), which is tuned for local
-   * fakenet chains: real-network deploys may want it lower.
+   * {@link defaultAdditionalFeeOverhead} for the facade's network.
    */
   additionalFeeOverhead?: bigint;
+}
+
+/** The DUST a facade refusal reports holding and needing, in base units. */
+export interface DustShortfall {
+  /** The DUST the facade found available to the refused call. */
+  readonly have: bigint;
+  /** The DUST the refused call needs. */
+  readonly need: bigint;
+}
+
+// A facade refusal that names its shortfall does so as "(have X, need Y)":
+// the dust-registration refusal ("Insufficient generated dust to cover
+// registration fee (have X, need Y)") does, the balancing refusal
+// ("Insufficient Funds: could not balance dust") names no amount.
+const DUST_SHORTFALL = /dust\b.*?\(have (\d+), need (\d+)\)/i;
+
+/**
+ * The amounts a facade refusal names when it refuses for lack of DUST.
+ *
+ * @param error - What a facade call threw.
+ * @returns The named shortfall, or undefined for a refusal that names no
+ *   amount and for any other error.
+ */
+export function dustShortfall(error: unknown): DustShortfall | undefined {
+  const match = DUST_SHORTFALL.exec(String(error));
+  const have = match?.[1];
+  const need = match?.[2];
+  return have === undefined || need === undefined
+    ? undefined
+    : { have: BigInt(have), need: BigInt(need) };
+}
+
+/**
+ * The ledger transaction an unproven-transaction byte string carries (a
+ * contract deploy from `buildDeployTransaction` in deploy.ts, a maintenance
+ * update), in the form the facade prices and balances.
+ *
+ * @param serializedTransaction - The unproven transaction bytes.
+ * @returns The deserialized unproven transaction.
+ */
+function deserializeUnprovenTransaction(
+  serializedTransaction: Uint8Array,
+): ledger.Transaction<ledger.SignatureEnabled, ledger.PreProof, ledger.PreBinding> {
+  return ledger.Transaction.deserialize<
+    ledger.SignatureEnabled,
+    ledger.PreProof,
+    ledger.PreBinding
+  >("signature", "pre-proof", "pre-binding", serializedTransaction);
 }
 
 /**
@@ -170,7 +229,8 @@ export function initialiseWalletFacade(
       // The facade talks to the node over WebSocket, so flip http(s) -> ws(s).
       relayURL: new URL(config.nodeUrl.replace(/^http/, "ws")),
       costParameters: {
-        additionalFeeOverhead: options.additionalFeeOverhead ?? DEFAULT_ADDITIONAL_FEE_OVERHEAD,
+        additionalFeeOverhead:
+          options.additionalFeeOverhead ?? defaultAdditionalFeeOverhead(config.networkId),
         feeBlocksMargin: FEE_BLOCKS_MARGIN,
       },
       txHistoryStorage: new InMemoryTransactionHistoryStorage(
@@ -194,28 +254,70 @@ export function initialiseWalletFacade(
 // Recipes (balancing plans for submitted transactions) expire 30 min out.
 const RECIPE_TTL_MS = 30 * 60 * 1000;
 
+// Dust generates continuously once NIGHT is registered, but a fresh
+// registration takes a few blocks before a spendable balance appears.
+const DUST_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Wait until the wallet's spendable DUST (fee) balance reaches `minimumDust`,
+ * polling the synced facade state and logging each reading. Pair with
+ * {@link registerNightForDustGeneration}: a wallet whose NIGHT was just
+ * registered has no dust for a few blocks.
+ *
+ * @param facade - A started wallet facade.
+ * @param minimumDust - The spendable DUST to wait for, in base units (1 = any dust at all).
+ * @param timeoutMs - Give-up deadline in milliseconds.
+ * @returns The first spendable dust balance at or above `minimumDust`.
+ * @throws {Error} If the balance stays below `minimumDust` for `timeoutMs`.
+ */
+export async function waitForSpendableDust(
+  facade: WalletFacade,
+  minimumDust: bigint,
+  timeoutMs = 300_000,
+): Promise<bigint> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = await facade.waitForSyncedState();
+    const dust = state.dust.balance(new Date());
+    if (dust >= minimumDust) return dust;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `spendable DUST reached ${String(dust)} of the ${String(minimumDust)} needed after ${String(timeoutMs)} ms: ` +
+          "is the wallet's NIGHT registered for dust generation, and is there enough of it to generate the fees?",
+      );
+    }
+    console.log(`spendable DUST ${String(dust)} of the ${String(minimumDust)} needed, waiting...`);
+    await new Promise((resolve) => setTimeout(resolve, DUST_POLL_INTERVAL_MS));
+  }
+}
+
 // Balancing throws Wallet.InsufficientFunds ("could not balance dust") while
 // the paying wallet's DUST is still generating: a young local chain accrues
 // it block by block from the genesis NIGHT, and a freshly registered wallet
 // on a deployed network starts from its first few units. Building the recipe
-// costs no proving, so it is retried in place until the wallet covers the
-// fee. A wallet with nothing to generate from fails fast in ensureFeeReady
-// (funding.ts) before any of this, so the bounded retry cannot mask real
-// underfunding.
+// runs the ledger's fee dry run in WebAssembly, so a refusal that names its
+// shortfall is answered by polling the spendable DUST up to that amount and
+// building once more, and one that names no amount by rebuilding every
+// BALANCE_RETRY_INTERVAL_MS. A wallet with nothing to generate from fails
+// fast in ensureFeeReady (funding.ts) before any of this, so the bounded
+// retry cannot mask real underfunding.
 const BALANCE_RETRY_INTERVAL_MS = 15_000;
 const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
 
 /**
- * Run a recipe-building call, retrying while it fails for lack of DUST. Each
- * retry first waits for the facade to report itself synced again, so the
- * balancer works from the chain tip rather than the view the last attempt
- * failed on.
+ * Run a recipe-building call, retrying while it fails for lack of DUST
+ * within {@link BALANCE_RETRY_TIMEOUT_MS}. A refusal naming its shortfall
+ * (see {@link dustShortfall}) waits for the spendable DUST to reach the
+ * named amount before building again. One naming no amount is rebuilt each
+ * interval, after the facade reports itself synced again so the balancer
+ * works from the chain tip.
  *
  * @param facade - The started facade `build` balances with.
  * @param build - The balancing call to (re)attempt.
  * @returns The recipe `build` resolves to.
- * @throws {Error} The last error once {@link BALANCE_RETRY_TIMEOUT_MS} is
- *   spent, or immediately for any error other than insufficient dust.
+ * @throws {Error} Immediately for any error other than insufficient dust, the
+ *   facade's own error once the retry budget is spent, or the wait's error
+ *   when a named shortfall does not generate within the budget.
  */
 async function balanceWhileDustGenerates<T>(
   facade: WalletFacade,
@@ -230,14 +332,40 @@ async function balanceWhileDustGenerates<T>(
       const insufficientDust =
         message.includes("InsufficientFunds") || message.includes("could not balance dust");
       if (!insufficientDust || Date.now() >= deadline) throw error;
+      const shortfall = dustShortfall(error);
+      if (shortfall === undefined) {
+        console.log(
+          `the wallet cannot cover the fee yet (DUST still generating), retrying in ${String(BALANCE_RETRY_INTERVAL_MS / 1000)}s`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, BALANCE_RETRY_INTERVAL_MS));
+        const state = await facade.waitForSyncedState();
+        console.log(`wallet resynced, spendable DUST: ${String(state.dust.balance(new Date()))}`);
+        continue;
+      }
       console.log(
-        `the wallet cannot cover the fee yet (DUST still generating), retrying in ${String(BALANCE_RETRY_INTERVAL_MS / 1000)}s`,
+        `the wallet holds ${String(shortfall.have)} of the ${String(shortfall.need)} DUST the fee needs, waiting for the rest to generate`,
       );
-      await new Promise((resolve) => setTimeout(resolve, BALANCE_RETRY_INTERVAL_MS));
-      const state = await facade.waitForSyncedState();
-      console.log(`wallet resynced, spendable DUST: ${String(state.dust.balance(new Date()))}`);
+      await waitForSpendableDust(facade, shortfall.need, deadline - Date.now());
     }
   }
+}
+
+/**
+ * The fee the facade prices a serialized unproven transaction at: the
+ * ledger's fee with the facade's block margin plus the network's overhead
+ * (see {@link defaultAdditionalFeeOverhead}). The balancing inputs the
+ * facade adds at submission carry a further small fee, so this is the floor
+ * of what submitting the transaction burns.
+ *
+ * @param facade - A started facade, whose network sets the overhead.
+ * @param serializedTransaction - The unproven transaction bytes.
+ * @returns The transaction's fee in DUST base units.
+ */
+export async function estimateUnprovenTransactionFee(
+  facade: WalletFacade,
+  serializedTransaction: Uint8Array,
+): Promise<bigint> {
+  return facade.calculateTransactionFee(deserializeUnprovenTransaction(serializedTransaction));
 }
 
 /**
@@ -257,12 +385,7 @@ export async function submitUnprovenTransaction(
   keys: AccountKeys,
   serializedTransaction: Uint8Array,
 ): Promise<TransactionIdentifier> {
-  // Deserialize back into the ledger UnprovenTransaction the facade balances.
-  const tx = ledger.Transaction.deserialize<
-    ledger.SignatureEnabled,
-    ledger.PreProof,
-    ledger.PreBinding
-  >("signature", "pre-proof", "pre-binding", serializedTransaction);
+  const tx = deserializeUnprovenTransaction(serializedTransaction);
 
   // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
   console.log("balancing and signing transaction...");
@@ -325,25 +448,6 @@ export async function transferNight(
   return facade.submitTransaction(finalized);
 }
 
-// A first-time registration pays its own fee out of the dust its NIGHT UTXOs
-// have generated since they landed, and the facade refuses to build one
-// while that dust is short of the fee, naming the fee it needs.
-const INSUFFICIENT_GENERATED_DUST =
-  /Insufficient generated dust to cover registration fee .*need (\d+)/;
-
-/**
- * The registration fee a facade refusal names, when the refusal is the
- * "insufficient generated dust" one.
- *
- * @param error - What `registerNightUtxosForDustGeneration` threw.
- * @returns The fee in DUST base units, or undefined for any other error.
- */
-export function requiredGeneratedDust(error: unknown): bigint | undefined {
-  const match = INSUFFICIENT_GENERATED_DUST.exec(String(error));
-  const fee = match?.[1];
-  return fee === undefined ? undefined : BigInt(fee);
-}
-
 // How long a fresh NIGHT UTXO may take to generate its own registration fee.
 const GENERATED_DUST_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -352,10 +456,11 @@ const GENERATED_DUST_TIMEOUT_MS = 5 * 60 * 1000;
  * wallet can pay transaction fees (fees are paid in DUST, which only
  * generates on registered NIGHT). Registers ONLY unregistered UTXOs — the
  * node rejects a re-registration of an already-registered one — and submits
- * nothing when there is nothing new to register. A UTXO that landed moments
- * ago has not yet generated the registration's own fee: the facade refuses
- * naming the fee, and this waits for exactly that amount to generate before
- * registering again.
+ * nothing when there is nothing new to register. A first-time registration
+ * pays its own fee out of the dust its NIGHT UTXOs have generated since they
+ * landed, and a UTXO that landed moments ago has not yet generated it: the
+ * facade refuses naming the shortfall (see {@link dustShortfall}), and this
+ * waits for exactly that amount to generate before registering again.
  *
  * @param facade - A started wallet facade for `keys` (builds, proves and submits the registration).
  * @param keys - The key material of the same wallet; its unshielded keystore signs the registration.
@@ -387,49 +492,19 @@ export async function registerNightForDustGeneration(
   try {
     recipe = await register();
   } catch (error) {
-    const fee = requiredGeneratedDust(error);
-    if (fee === undefined) throw error;
+    const shortfall = dustShortfall(error);
+    if (shortfall === undefined) throw error;
     console.log(
-      `the NIGHT has not yet generated the ${String(fee)} DUST its registration costs, waiting...`,
+      `the NIGHT has generated ${String(shortfall.have)} of the ${String(shortfall.need)} DUST its registration costs, waiting...`,
     );
-    await facade.waitForGeneratedDust(unregistered, fee, { timeoutMs: GENERATED_DUST_TIMEOUT_MS });
+    await facade.waitForGeneratedDust(unregistered, shortfall.need, {
+      timeoutMs: GENERATED_DUST_TIMEOUT_MS,
+    });
     recipe = await register();
   }
   const finalized = await facade.finalizeRecipe(recipe);
   await facade.submitTransaction(finalized);
   return unregistered.length;
-}
-
-// Dust generates continuously once NIGHT is registered, but a fresh
-// registration takes a few blocks before a spendable balance appears.
-const DUST_POLL_INTERVAL_MS = 5_000;
-
-/**
- * Wait until the wallet's spendable DUST (fee) balance is positive, polling
- * the synced facade state. Pair with {@link registerNightForDustGeneration}:
- * a wallet whose NIGHT was just registered has no dust for a few blocks.
- *
- * @param facade - A started wallet facade.
- * @param timeoutMs - Give-up deadline in milliseconds.
- * @returns The first positive dust balance observed.
- * @throws {Error} If no dust appears within `timeoutMs`.
- */
-export async function waitForSpendableDust(
-  facade: WalletFacade,
-  timeoutMs = 300_000,
-): Promise<bigint> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const state = await facade.waitForSyncedState();
-    const dust = state.dust.balance(new Date());
-    if (dust > 0n) return dust;
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `no spendable DUST after ${String(timeoutMs)} ms — is the wallet's NIGHT registered for dust generation?`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, DUST_POLL_INTERVAL_MS));
-  }
 }
 
 /**

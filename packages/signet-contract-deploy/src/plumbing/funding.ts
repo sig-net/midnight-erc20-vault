@@ -86,13 +86,15 @@ export async function readAccountFunding(
 }
 
 /**
- * A wallet is fee-ready when it holds NIGHT and that NIGHT has generated spendable dust.
+ * A wallet is fee-ready when it holds NIGHT and that NIGHT has generated at
+ * least `minimumDust` of spendable dust.
  *
  * @param funding - The wallet's measured funding.
+ * @param minimumDust - The spendable DUST that counts as ready, in base units, 1 (any dust at all) by default.
  * @returns Whether the wallet can pay fees right now.
  */
-export function isFeeReady(funding: AccountFunding): boolean {
-  return funding.night > 0n && funding.dust > 0n;
+export function isFeeReady(funding: AccountFunding, minimumDust = 1n): boolean {
+  return funding.night > 0n && funding.dust >= minimumDust;
 }
 
 /**
@@ -127,10 +129,14 @@ export class WalletUnfundedError extends Error {
  * generation, so every unregistered NIGHT UTXO the wallet holds is registered
  * here first, whatever its current dust: a faucet top-up or transfer change
  * arrives unregistered, and leaving it so while older dust lasts would let
- * the wallet's dust generation shrink with every spend. Then a wallet with
- * spendable dust returns it, and one without waits until its first dust
- * appears (a few blocks). The facade must be started and synced, and `state`
- * must be its synced state (see `withSyncedWalletFacade` in wallet.ts).
+ * the wallet's dust generation shrink with every spend. Then a wallet holding
+ * at least `minimumDust` of spendable dust returns it, and one without waits
+ * until it does: a few blocks for a fresh registration, longer for a
+ * multi-transaction budget. A flow about to submit several transactions
+ * passes their total fee as `minimumDust`, so a wallet that cannot cover
+ * them stops here with the shortfall named and nothing submitted. The facade
+ * must be started and synced, and `state` must be its synced state (see
+ * `withSyncedWalletFacade` in wallet.ts).
  *
  * @param facade - A started wallet facade for `keys`, which submits the registration.
  * @param keys - The key material of the same wallet. Its keystore signs the registration.
@@ -138,9 +144,10 @@ export class WalletUnfundedError extends Error {
  * @param networkId - The network the wallet lives on, which prefixes the
  *   NIGHT receive address the no-NIGHT error prints for faucet funding.
  * @param faucetUrl - The network's faucet for the no-NIGHT hint, when one is known.
- * @returns The wallet's spendable DUST balance, always positive.
- * @throws {WalletUnfundedError} If the wallet holds neither NIGHT nor DUST.
- * @throws {Error} If no dust appears in time after registration (see
+ * @param minimumDust - The spendable DUST to require, in base units, 1 (any dust at all) by default.
+ * @returns The wallet's spendable DUST balance, at least `minimumDust`.
+ * @throws {WalletUnfundedError} If the wallet holds no NIGHT and less than `minimumDust` of DUST.
+ * @throws {Error} If the dust stays below `minimumDust` for the wait's timeout (see
  *   {@link waitForSpendableDust}).
  */
 export async function ensureFeeReady(
@@ -149,19 +156,22 @@ export async function ensureFeeReady(
   state: FacadeState,
   networkId: NetworkId,
   faucetUrl?: string,
+  minimumDust = 1n,
 ): Promise<bigint> {
   const dust = state.dust.balance(new Date());
   if (totalNight(state) === 0n) {
-    if (dust > 0n) return dust;
+    if (dust >= minimumDust) return dust;
     throw new WalletUnfundedError(deriveAddresses(keys, networkId).unshielded, faucetUrl);
   }
   const registered = await registerNightForDustGeneration(facade, keys, state);
   if (registered > 0) {
     console.log(`registered ${String(registered)} NIGHT UTXO(s) for dust generation`);
   }
-  if (dust > 0n) return dust;
-  console.log("waiting for spendable DUST...");
-  return waitForSpendableDust(facade);
+  if (dust >= minimumDust) return dust;
+  console.log(
+    `waiting for spendable DUST (have ${String(dust)}, need at least ${String(minimumDust)})...`,
+  );
+  return waitForSpendableDust(facade, minimumDust);
 }
 
 // A freshly composed local stack has a window where the indexer reports a

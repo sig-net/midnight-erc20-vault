@@ -10,6 +10,7 @@ import { buildDeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
 import { ensureFeeReady } from "./plumbing/funding.ts";
 import { getFaucetUrl } from "./plumbing/midnight-node-config.ts";
 import {
+  estimateUnprovenTransactionFee,
   submitUnprovenTransaction,
   type TransactionIdentifier,
   WalletRegistry,
@@ -33,7 +34,8 @@ export interface SignetContractDeployment {
  * logged to the console. The contract takes no constructor arguments. Any
  * funded wallet can deploy, and nothing about the deployer is sealed. The wallet
  * needs NIGHT only: {@link ensureFeeReady} registers it for dust generation
- * and waits for the first spendable DUST when the wallet has none yet.
+ * and waits for the deploy transaction's fee in spendable DUST when the
+ * wallet holds less.
  *
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
@@ -43,8 +45,8 @@ export interface SignetContractDeployment {
  * @returns The deployed contract address and deploy transaction id.
  * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT
  *   nor DUST: the error carries the wallet's NIGHT receive address to fund.
- * @throws {Error} If no spendable DUST appears after registering the wallet's
- *   NIGHT, or submission fails.
+ * @throws {Error} If the deploy's fee does not generate in spendable DUST after
+ *   registering the wallet's NIGHT, or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,
@@ -60,8 +62,6 @@ export async function deploySignetContract(
 
   try {
     const { facade, keys } = await registry.wallet(deployConfig.deployerSeed, "deployer");
-    const state = await facade.waitForSyncedState();
-    await ensureFeeReady(facade, keys, state, networkId, getFaucetUrl(env, networkId));
 
     const deployTransaction = await buildDeployTransaction(
       signetContractCompiledContract,
@@ -70,6 +70,15 @@ export async function deploySignetContract(
       createSignetContractPrivateState(),
     );
     console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
+
+    // The one transaction this deploy submits, priced before anything is sent.
+    const fee = await estimateUnprovenTransactionFee(
+      facade,
+      deployTransaction.serializedTransaction,
+    );
+    console.log(`fee budget: 1 transaction at about ${String(fee)} DUST`);
+    const state = await facade.waitForSyncedState();
+    await ensureFeeReady(facade, keys, state, networkId, getFaucetUrl(env, networkId), fee);
 
     const txId = await submitUnprovenTransaction(
       facade,
