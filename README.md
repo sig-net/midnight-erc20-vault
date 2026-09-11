@@ -100,7 +100,7 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 
 > **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
 >
-> **caip2ChainId** is the id of the chain the request originates from, in [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) form. For signature requests made on Midnight it is the Midnight variant (currently `midnight:testnet`). It is not the target chain id carried in the request record's `caip2Id` field.
+> **caip2ChainId** is the [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) id the MPC assigns to requests originating from Midnight contracts. It is the fixed literal `midnight:mainnet` (`MIDNIGHT_MAINNET_CHAIN_ID` in `@sig-net/midnight`) on every Midnight network, so a contract derives the same keys wherever it is deployed. It is not the target chain id carried in the request record's `caip2Id` field.
 
 ## Handling Failure
 

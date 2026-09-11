@@ -1,16 +1,22 @@
 // Unit tests for the v2.0.0 epsilon EVM-address derivation, the only scheme the
 // MPC answers. Golden vectors were generated from an independent construction of
-// `caip2_derivation_path` (MPC crypto/src/kdf.rs): the colon-separated string
-// built by hand, keccak'd, then root + epsilon*G with noble. Sharing no code with
-// the implementation is the point: these must not be regenerated from it.
+// `caip2_derivation_path` (MPC signet-crypto/src/kdf.rs): the colon-separated
+// string built by hand with the fixed `midnight:mainnet` chain id, keccak'd,
+// then root + epsilon*G with noble. Sharing no code with the implementation is
+// the point: these must not be regenerated from it.
 
 import { describe, expect, it } from "vitest";
 
 import {
   asciiPadded,
   bytesToHex,
+  deriveEpsilon,
   deriveEvmAddress,
   deriveMidnightResponseKey,
+  EPSILON_DERIVATION_PREFIX,
+  MIDNIGHT_MAINNET_CHAIN_ID,
+  MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
+  parseSecp256k1PublicKey,
 } from "../src/index.ts";
 import { deriveMidnightResponseSecretKey, secp256k1PublicKeyOf } from "../src/testing.ts";
 
@@ -23,37 +29,25 @@ const COMMITMENT_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c
 interface Case {
   name: string;
   path: string;
-  chainId: string | undefined;
   expected: string;
 }
 
 const CASES: Case[] = [
   {
-    name: "vault path, default midnight:testnet chain id",
+    name: "vault path",
     path: "vault",
-    chainId: undefined,
-    expected: "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
+    expected: "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
   },
   {
-    name: "user commitment-hex path, default chain id",
+    name: "user commitment-hex path",
     path: COMMITMENT_HEX,
-    chainId: undefined,
-    expected: "0x9865db6544a77649187636fCAcb6b2bBC0eD8393",
-  },
-  {
-    name: "explicit non-default chain id changes the derivation",
-    path: "vault",
-    chainId: "eip155:11155111",
-    expected: "0x11F95e6098FC53fD106506F8b42726990b176348",
+    expected: "0x286BC9Fb1CfBaC876471ee2aF17976b4336Adb65",
   },
 ];
 
 describe("deriveEvmAddress", () => {
-  it.each(CASES)("$name", ({ path, chainId, expected }) => {
-    const address = chainId
-      ? deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path, chainId)
-      : deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path);
-    expect(address).toBe(expected);
+  it.each(CASES)("$name", ({ path, expected }) => {
+    expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path)).toBe(expected);
   });
 
   it("accepts the uncompressed form of the same root public key", () => {
@@ -62,7 +56,7 @@ describe("deriveEvmAddress", () => {
       "0x0481e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243" +
       "4fd9fffb61ad2ff6c6423cbd51e2d8d9535fef116d48dfeedce3276db6a53446";
     expect(deriveEvmAddress(uncompressed, CONTRACT_ADDRESS, "vault")).toBe(
-      "0x607622ceB3b0f430EaC738B8FeBD577F6d11D37F",
+      "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
     );
   });
 
@@ -97,7 +91,7 @@ describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
       name: "padded ascii literal pad(32, 'caller-path')",
       pathBytes: asciiPadded("caller-path", 32),
       expectedPathHex: "63616c6c65722d70617468000000000000000000000000000000000000000000",
-      expectedAddress: "0xc68d2d294AbE77eCEdEf1bCAcF2BCd1E49470986",
+      expectedAddress: "0x26c05D12f8147C8428dcda4d263736062BDE5eA4",
     },
     {
       // A commitment-style path: invalid UTF-8, an interior NUL and a
@@ -109,7 +103,7 @@ describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
         0x8f, 0x00,
       ]),
       expectedPathHex: "a1b2c3d4e5f60718fffe005c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f00",
-      expectedAddress: "0x24F74013beEEb823D1E5ff373f665B7F38882B31",
+      expectedAddress: "0xA05732714EBC6c2366F2876CC817c9998efDc789",
     },
   ];
 
@@ -127,6 +121,16 @@ const MPC_ROOT_SECRET = Uint8Array.from(
 const CLIENT_ADDRESS = CONTRACT_ADDRESS;
 
 describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
+  it("matches the independently constructed response key, public and secret side", () => {
+    const expected = parseSecp256k1PublicKey(
+      "033bd4c0204cec4b87d1d3e15f75051dba7e1e80ffaa3c83853192a41bc18ed8c2",
+    );
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, CLIENT_ADDRESS)).toEqual(expected);
+    expect(
+      secp256k1PublicKeyOf(deriveMidnightResponseSecretKey(MPC_ROOT_SECRET, CLIENT_ADDRESS)),
+    ).toEqual(expected);
+  });
+
   it("secret and public derivations agree: pub(secret) == derived public key", () => {
     const secret = deriveMidnightResponseSecretKey(MPC_ROOT_SECRET, CLIENT_ADDRESS);
     expect(secp256k1PublicKeyOf(secret)).toEqual(
@@ -157,5 +161,54 @@ describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
     expect(() => deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS)).toThrow(
       /32 bytes/,
     );
+  });
+});
+
+// The MPC's own golden fixture (sig-net/mpc signet-crypto/fixtures/
+// midnight-epsilon.json), which its `midnight_epsilon_matches_the_reference_
+// implementation` test asserts `derive_epsilon_midnight(1, ...)` against.
+// Pinning the same constants and epsilons here keeps both sides of the
+// protocol on one derivation string. Never regenerate these from this
+// implementation: copy them from the MPC fixture.
+describe("agrees with the MPC's midnight-epsilon golden fixture", () => {
+  const FIXTURE_REQUESTER = "abf32e141d471192a834779b0a8960aa05a7f94534564f477420eef80f588c48";
+
+  interface FixtureVector {
+    requester: string;
+    path: string;
+    epsilon: string;
+  }
+
+  const FIXTURE_VECTORS: FixtureVector[] = [
+    {
+      requester: FIXTURE_REQUESTER,
+      path: "vault",
+      epsilon: "3c6fb4087edbc9e2cbea5e949a3a6dee2a143aecea25c079e1db314ece1319b1",
+    },
+    {
+      requester: FIXTURE_REQUESTER,
+      path: "midnight response key",
+      epsilon: "e4748f4561c2a6090cf9f70ed68f26b81d637bf38bc832371d33b4823c0ccafa",
+    },
+    {
+      requester: FIXTURE_REQUESTER,
+      path: "",
+      epsilon: "d9763868f45b3e9c7da74a4410abe07af53a792e1dcc9881f9d788c0cff15898",
+    },
+    {
+      requester: "0".repeat(64),
+      path: "a:b:c",
+      epsilon: "3d7d62f5c521828a861cbe7dab3ab7ac86707b73abf84711b986e724f534d974",
+    },
+  ];
+
+  it("pins the fixture's constants", () => {
+    expect(EPSILON_DERIVATION_PREFIX).toBe("sig.network v2.0.0 epsilon derivation");
+    expect(MIDNIGHT_MAINNET_CHAIN_ID).toBe("midnight:mainnet");
+    expect(MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH).toBe("midnight response key");
+  });
+
+  it.each(FIXTURE_VECTORS)("requester $requester, path $path", ({ requester, path, epsilon }) => {
+    expect(deriveEpsilon(requester, path).toString(16).padStart(64, "0")).toBe(epsilon);
   });
 });
