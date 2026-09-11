@@ -66,13 +66,14 @@ export interface WalletAddresses {
  * transaction.
  *
  * The overhead compensates for the wallet sdk pricing a PROOF-ERASED
- * transaction while the node prices the real proof bytes. Keccak-based
- * verification proofs (~9.2 KB, vs ~6.4 KB for persistentHash-era ones)
- * left the node's fee ~2.2e13 above the wallet's estimate, so the node
- * rejected the spend with Malformed(BalanceCheckOverspend). 5e13 covers
- * that with headroom, and the excess is simply burned dust. The default is
- * tuned for local fakenet chains where dust is free: real-network deploys
- * may want a lower value (see {@link WalletFacadeOptions}).
+ * transaction while the node prices the real proof bytes. The node's fee
+ * consequently exceeds the wallet's estimate by an amount that grows with
+ * proof size, and the node rejects the spend with
+ * Malformed(BalanceCheckOverspend) when the wallet under-provides. 5e13
+ * covers the gap this repo's circuits produce, with headroom, and the excess
+ * is simply burned dust. The default is tuned for local fakenet chains where
+ * dust is free: real-network deploys may want a lower value (see
+ * {@link WalletFacadeOptions}).
  */
 export const DEFAULT_ADDITIONAL_FEE_OVERHEAD = 50_000_000_000_000n;
 
@@ -193,6 +194,52 @@ export function initialiseWalletFacade(
 // Recipes (balancing plans for submitted transactions) expire 30 min out.
 const RECIPE_TTL_MS = 30 * 60 * 1000;
 
+// Balancing throws Wallet.InsufficientFunds ("could not balance dust") while
+// the paying wallet's DUST is still generating: a young local chain accrues
+// it block by block from the genesis NIGHT, and a freshly registered wallet
+// on a deployed network starts from its first few units. Building the recipe
+// costs no proving, so it is retried in place until the wallet covers the
+// fee. A wallet with nothing to generate from fails fast in ensureFeeReady
+// (funding.ts) before any of this, so the bounded retry cannot mask real
+// underfunding.
+const BALANCE_RETRY_INTERVAL_MS = 15_000;
+const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
+
+/**
+ * Run a recipe-building call, retrying while it fails for lack of DUST. Each
+ * retry first waits for the facade to report itself synced again, so the
+ * balancer works from the chain tip rather than the view the last attempt
+ * failed on.
+ *
+ * @param facade - The started facade `build` balances with.
+ * @param build - The balancing call to (re)attempt.
+ * @returns The recipe `build` resolves to.
+ * @throws {Error} The last error once {@link BALANCE_RETRY_TIMEOUT_MS} is
+ *   spent, or immediately for any error other than insufficient dust.
+ */
+async function balanceWhileDustGenerates<T>(
+  facade: WalletFacade,
+  build: () => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + BALANCE_RETRY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return await build();
+    } catch (error) {
+      const message = String(error);
+      const insufficientDust =
+        message.includes("InsufficientFunds") || message.includes("could not balance dust");
+      if (!insufficientDust || Date.now() >= deadline) throw error;
+      console.log(
+        `the wallet cannot cover the fee yet (DUST still generating), retrying in ${String(BALANCE_RETRY_INTERVAL_MS / 1000)}s`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, BALANCE_RETRY_INTERVAL_MS));
+      const state = await facade.waitForSyncedState();
+      console.log(`wallet resynced, spendable DUST: ${String(state.dust.balance(new Date()))}`);
+    }
+  }
+}
+
 /**
  * Balance, sign, prove and submit a serialized unproven transaction (e.g. a
  * contract deploy built by `buildDeployTransaction` in deploy.ts). Proving
@@ -202,7 +249,8 @@ const RECIPE_TTL_MS = 30 * 60 * 1000;
  * @param keys - The key material of the same wallet, for balancing and signing.
  * @param serializedTransaction - The unproven transaction bytes.
  * @returns The submitted transaction's identifier.
- * @throws {Error} If the wallet cannot cover fees, proving fails, or the node rejects the transaction.
+ * @throws {Error} If the wallet still cannot cover fees after the balancing retry
+ *   budget, proving fails, or the node rejects the transaction.
  */
 export async function submitUnprovenTransaction(
   facade: WalletFacade,
@@ -217,13 +265,18 @@ export async function submitUnprovenTransaction(
   >("signature", "pre-proof", "pre-binding", serializedTransaction);
 
   // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
-  const recipe = await facade.balanceUnprovenTransaction(
-    tx,
-    { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
-    { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
+  console.log("balancing and signing transaction...");
+  const recipe = await balanceWhileDustGenerates(facade, () =>
+    facade.balanceUnprovenTransaction(
+      tx,
+      { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
+      { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
+    ),
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
+  console.log("proving transaction (proof server, can take minutes)...");
   const finalized = await facade.finalizeRecipe(signed);
+  console.log("submitting transaction...");
   return facade.submitTransaction(finalized);
 }
 
@@ -260,10 +313,12 @@ export async function transferNight(
     UnshieldedAddress,
     networkId,
   );
-  const recipe = await facade.transferTransaction(
-    [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
-    { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
-    { ttl: new Date(Date.now() + RECIPE_TTL_MS), payFees: true },
+  const recipe = await balanceWhileDustGenerates(facade, () =>
+    facade.transferTransaction(
+      [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
+      { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
+      { ttl: new Date(Date.now() + RECIPE_TTL_MS), payFees: true },
+    ),
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   const finalized = await facade.finalizeRecipe(signed);
@@ -359,7 +414,9 @@ export async function withSyncedWalletFacade<T>(
   const facade = await initialiseWalletFacade(keys, config, options);
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
   try {
+    console.log(`syncing wallet (indexer: ${config.indexerUrl})...`);
     const state = await facade.waitForSyncedState();
+    console.log("wallet synced");
     return await fn(facade, state);
   } finally {
     await facade.stop().catch(() => undefined);

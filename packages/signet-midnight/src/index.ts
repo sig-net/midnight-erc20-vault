@@ -48,6 +48,7 @@ export { calculateRequestId } from "./signet-request-id.ts";
 export * from "./signet-request-response-reader.ts";
 export {
   type ContractAddress,
+  contractAddressFromHex,
   type Maybe,
   MPCDestination,
   MPCSignatureAlgorithm,
@@ -69,6 +70,7 @@ export {
 export {
   formatSecp256k1PublicKey,
   parseSecp256k1PublicKey,
+  respondBidirectionalEventToCircuitInput,
   SECP256K1_ORDER,
   type Secp256k1Point,
   signatureRespondedEventToSignature,

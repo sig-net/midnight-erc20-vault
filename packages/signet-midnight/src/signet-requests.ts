@@ -15,7 +15,7 @@ import {
   CompactTypeEnum,
 } from "@midnight-ntwrk/compact-runtime";
 
-import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import { bytesToHex, hexToBytes, stripHexPrefix } from "./byte-codecs.ts";
 import {
   BYTES_32,
   BYTES_64,
@@ -29,6 +29,24 @@ import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 
 // Public re-export: these types appear throughout the request record's shape.
 export type { ContractAddress, Maybe } from "./compact-descriptors.ts";
+
+/**
+ * Parse a contract address from its hex rendering (optional `0x`/`0X`
+ * prefix): the form the deploy flow prints, the environment carries and the
+ * published per-network table stores. The inverse of rendering
+ * {@link ContractAddress.bytes} with {@link bytesToHex}.
+ *
+ * @param hex - The 32-byte contract address in hex.
+ * @returns The typed contract address.
+ * @throws {Error} If the string is not exactly 32 bytes of hex.
+ */
+export function contractAddressFromHex(hex: string): ContractAddress {
+  const digits = stripHexPrefix(hex);
+  if (!/^[0-9a-fA-F]{64}$/.test(digits)) {
+    throw new Error(`not a 32-byte contract address in hex: "${hex}"`);
+  }
+  return { bytes: hexToBytes(digits) };
+}
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
@@ -54,8 +72,8 @@ export const TxParamType = {
   evmType2: 0,
   /**
    * Never emitted: the Compact-side padding variant that keeps the enum at
-   * >= 2 variants (a 1-variant enum is a zero-byte value the proof server
-   * cannot parse inside persistentHash preimages).
+   * >= 2 variants, so it compiles to a one-byte value rather than a
+   * zero-byte one the proof server cannot parse inside a hash preimage.
    */
   reserved: 1,
 } as const;
@@ -124,17 +142,16 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
 // tx-params type and schema lengths, and the Compact compiler cannot export
 // type-parameterised circuits from the top level, so the record descriptor
 // (and `calculateRequestId` built on it, see signet-request-id.ts) gets a TS
-// twin here. Ids come from the same
-// `keccak256` runtime builtin compiled circuits call. Lockstep with
-// Signet.compact is enforced by test-caller-contract's
+// twin here. Ids come from the same `transientHash` runtime builtin compiled
+// circuits call. Lockstep with Signet.compact is enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the compiled contract.
 
 // Runtime descriptors of the signet enums, at the literals the compiler
 // emits. NOTE: a 1-variant enum would compile to `CompactTypeEnum(0, 0)`,
-// zero bytes, which the proof server cannot parse inside persistentHash
-// preimages. Every enum therefore carries a padding `reserved` variant so it
-// stays at (1, 1). The Compact-generic base descriptors live in
+// zero bytes, which the proof server cannot parse inside a hash preimage.
+// Every enum therefore carries a padding `reserved` variant so it stays at
+// (1, 1). The Compact-generic base descriptors live in
 // compact-descriptors.ts.
 const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
 const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);

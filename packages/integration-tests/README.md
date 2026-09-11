@@ -72,7 +72,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:0.13.0`, built from
+  compose service (image pinned in the root `docker-compose.yaml`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
@@ -124,14 +124,14 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
 
 ### Against a deployed network (e.g. stagenet)
 
-1. `NETWORK_ID=stagenet`, plus the network's endpoints — they are not
-   published in this repo, so set `MIDNIGHT_NODE_URL` and
-   `MIDNIGHT_NODE_INDEXER_URL` (the WS twin derives from it) in `.env`. The
-   proof server stays local, so keep one running at
+1. `NETWORK_ID=stagenet` is the whole configuration: the network's endpoints
+   are built in (override one with `MIDNIGHT_NODE_URL` or
+   `MIDNIGHT_NODE_INDEXER_URL` if needed, the WS twin derives from the
+   latter). The proof server stays local, so keep one running at
    `MIDNIGHT_NODE_PROOF_SERVER_URL`, default `http://127.0.0.1:6300`.
 2. First run: the setup generates root + the three role seeds into `.env`,
-   then stops printing root's NIGHT address. Fund it at the network's faucet
-   (set `MIDNIGHT_FAUCET_URL` to have the stop message name it).
+   then stops printing root's NIGHT address. Fund it at the network's faucet,
+   which the stop message names (`MIDNIGHT_FAUCET_URL` overrides it).
 3. Rerun: root funds the roles (evenly split, or `FUND_CHILD_NIGHT` each) and
    the pipeline runs to the end. The fakenet responder needs its container
    endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).
@@ -176,6 +176,7 @@ the address vars, rerun the suite and watch the run for you.
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
+| `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `stagenet`, `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated per run |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance evenly) |
