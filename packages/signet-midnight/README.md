@@ -2,7 +2,7 @@
 
 The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-net/mpc) integration for the [Midnight blockchain](https://midnight.network) lets contracts on Midnight execute arbitrary transactions on foreign blockchains, and respond to the results of those transactions.
 
-`@sig-net/midnight` is the client-agnostic protocol library for that integration. It carries everything a Midnight contract or off-chain client needs to speak the signet protocol (the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow)). It does not bind to any particular contract.
+`@sig-net/midnight` is the client-agnostic protocol library for that integration. It carries everything a Midnight contract or off-chain client needs to speak the signet protocol (the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow)). It does not bind to any particular contract.
 
 > ## 🚧 Under Construction 🚧
 >
@@ -33,8 +33,9 @@ npm install @sig-net/midnight
 
 The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):
 
-- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow): the 5-step protocol this package speaks, with diagram, failure handling and output recovery.
+- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this package speaks, with diagram, failure handling and output recovery.
 - [Derived keys](https://github.com/sig-net/midnight-integration/blob/main/README.md#derived-keys): the request signing key and the response key, and how the MPC derives them.
+- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): the fixed 5-byte failure payload the MPC attests for a failed foreign transaction, how a contract tells it apart from a success, and which respond schemas cannot.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): the once-off setup and the per-request runtime steps, built on this package's exports.
 - [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words): building calldata words in-circuit and deserialising respond payloads.
 
@@ -69,7 +70,7 @@ What clients import from `@sig-net/midnight`:
 | Compute a request id off chain | `calculateRequestId`: the TS twin of the on-chain circuit, plus `requestIdHex` and `parseRequestIdHex` for the hex form. |
 | Compose expected calldata words off chain (UIs, expected-record builders, tests) | The builders `numericAbiWord`, `evmAddressAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool`: TS twins of the circuits under identical names. |
 | Convert a foreign execution output into respond bytes | `deserializeEvmOutput` (raw EVM return data to named values) and `serializeRespondOutput` (named values to the packed respond payload the MPC attests): together they rebuild the `serializedOutput` of steps 4 and 5. |
-| Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions. |
+| Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions (see [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure)). |
 | Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. |
 | Mint attestations in your contract's unit tests | The `@sig-net/midnight/testing` entry point, see [Testing entry point](#testing-entry-point). |
 | Discover requests MPC-side (responders, background workers) | The discovery primitives: decode the signet contract's emitted notification events with `decodeSignBidirectionalEventNotificationPayload` and `decodeSignBidirectionalNotification`, then resolve each pointer against the named caller's own request map with `lookupSignetRequestAt` (the authenticated read). The polling loop belongs to the responder. |

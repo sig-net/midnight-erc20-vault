@@ -21,6 +21,7 @@ Everything is read from the environment:
 | `NETWORK_ID` | Target network: `undeployed` (local stack, the default), `stagenet`, `preview`, `preprod` or `mainnet`. Selects the default endpoints. |
 | `MIDNIGHT_NODE_URL`, `MIDNIGHT_NODE_INDEXER_URL`, `MIDNIGHT_NODE_INDEXER_WS_URL`, `MIDNIGHT_NODE_PROOF_SERVER_URL` | Optional per-endpoint overrides of the network defaults. |
 | `DEPLOYER_SEED` | The deploying wallet's seed (hex or mnemonic). On the local stack it defaults to the pre-funded genesis mint wallet. |
+| `MIDNIGHT_FAUCET_URL` | The faucet named in the unfunded-wallet hint. Built in per network: stagenet `https://faucet.stagenet.shielded.tools`, preview `https://midnight-tmnight-preview.nethermind.dev`, preprod `https://midnight-tmnight-preprod.nethermind.dev`. Set it to override one of those, or to name a faucet for a network without one. |
 
 ## Usage
 
@@ -42,7 +43,7 @@ The [sig-net/midnight-integration](https://github.com/sig-net/midnight-integrati
 
 ## Documentation
 
-The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).
+The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).
 
 ## Related packages
 
