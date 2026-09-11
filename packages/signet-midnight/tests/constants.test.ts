@@ -1,8 +1,18 @@
-// Unit tests for the padded-ASCII codec and the MPC failure sentinel.
+// Unit tests for the padded-ASCII codec, the MPC failure sentinel and the
+// published per-network counterparty values.
 
 import { describe, expect, it } from "vitest";
 
-import { asciiPadded, isMpcFailureOutput, MPC_FAILURE_OUTPUT } from "../src/index.ts";
+import {
+  asciiPadded,
+  type DeployedNetwork,
+  getMpcRootPublicKey,
+  getSignetContractAddress,
+  isMpcFailureOutput,
+  MidnightNetwork,
+  MPC_FAILURE_OUTPUT,
+  normaliseSecp256k1PublicKey,
+} from "../src/index.ts";
 
 describe("asciiPadded", () => {
   interface Case {
@@ -93,4 +103,40 @@ describe("isMpcFailureOutput", () => {
   it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, failure }) => {
     expect(isMpcFailureOutput(serializedOutput)).toBe(failure);
   });
+});
+
+// The stagenet MPC root key as the MPC operators publish it (NEAR form): the
+// constant must be that very key in the canonical spelling.
+const STAGENET_MPC_ROOT_KEY_NEAR_FORM =
+  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
+// The deployed networks whose counterparty values are not published yet.
+const UNPUBLISHED_NETWORKS: readonly DeployedNetwork[] = [
+  MidnightNetwork.Preview,
+  MidnightNetwork.Preprod,
+  MidnightNetwork.Mainnet,
+];
+
+describe("getMpcRootPublicKey", () => {
+  it("publishes the stagenet key in canonical 0x04 uncompressed SEC1 hex", () => {
+    const published = getMpcRootPublicKey(MidnightNetwork.Stagenet);
+    expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
+    expect(published).toBe(normaliseSecp256k1PublicKey(STAGENET_MPC_ROOT_KEY_NEAR_FORM));
+  });
+
+  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose key is not published yet", (network) => {
+    expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+  });
+});
+
+describe("getSignetContractAddress", () => {
+  it("publishes the stagenet singleton", () => {
+    expect(getSignetContractAddress(MidnightNetwork.Stagenet)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it.each(UNPUBLISHED_NETWORKS)(
+    "throws for %s, whose singleton is not published yet",
+    (network) => {
+      expect(() => getSignetContractAddress(network)).toThrow(/no signet contract address/);
+    },
+  );
 });

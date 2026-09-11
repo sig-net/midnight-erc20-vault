@@ -66,9 +66,11 @@ export {
 } from "./signet-requests.ts";
 // Explicit list: ecdsa-attestation.ts also backs the ./testing entry point
 // (the attestation-minting helpers that take a secret key live THERE), and
-// its record decoder (mpcSignatureToEcdsaSignature) is package-internal.
+// its record decoder (mpcSignatureToEcdsaSignature) and noble-point parser
+// (parseSecp256k1PublicKeyToNoblePoint) are package-internal.
 export {
   formatSecp256k1PublicKey,
+  normaliseSecp256k1PublicKey,
   parseSecp256k1PublicKey,
   respondBidirectionalEventToCircuitInput,
   SECP256K1_ORDER,

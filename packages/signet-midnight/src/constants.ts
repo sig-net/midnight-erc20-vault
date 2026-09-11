@@ -95,21 +95,26 @@ export enum MidnightNetwork {
  */
 export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
 
-// TODO: fill in each network's MPC root public key once it is generated and
-// published for that network. An empty string means "not yet published" and
+// Each network's MPC root public key in the canonical `0x04…` uncompressed
+// SEC1 hex (`normaliseSecp256k1PublicKey`), filled in as the MPC operators
+// publish it for that network. An empty string means "not yet published" and
 // makes getMpcRootPublicKey throw for that network.
 const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Stagenet]:
+    // Canonical form of the TESTNET root key from signet.js which is published there in NEAR specific form as:
+    // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
+    "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
 
 /**
- * The MPC root public key of a deployed Midnight network, as hex: the
- * `mpcRootPublicKey` every client key derivation starts from (see
- * `deriveEvmAddress`). A local standalone stack has no fixed key: its setup
- * generates a fresh `MPC_ROOT_KEY` per stack.
+ * The MPC root public key of a deployed Midnight network, as `0x04…`
+ * uncompressed SEC1 hex (the canonical spelling of
+ * `normaliseSecp256k1PublicKey`): the `mpcRootPublicKey` every client key
+ * derivation starts from (see `deriveEvmAddress`). A local standalone stack
+ * has no fixed key: its setup generates a fresh `MPC_ROOT_KEY` per stack.
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's MPC root public key.
