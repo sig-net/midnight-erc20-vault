@@ -14,8 +14,10 @@ import { describe, expect, it } from "vitest";
 import {
   abiWordToBool,
   abiWordToUint128,
+  asciiPadded,
   boolAbiWord,
   bytesToHex,
+  CAIP2_ID_BYTES,
   decodeSignBidirectionalNotification,
   evmAddressAbiWord,
   numericAbiWord,
@@ -68,6 +70,14 @@ describe("constructSignBidirectionalEventNotificationV1 (compiled packer)", () =
       callerAddress: bytesToHex(CALLER.bytes),
       requestsPath: [7],
     });
+  });
+});
+
+describe("ethereumCaip2Id (MPC routing key)", () => {
+  it("is eip155:1 zero-padded to the caip2Id width", () => {
+    // Lockstep with Chain::Ethereum.caip2_chain_id() in sig-net/mpc
+    // signet-primitives/src/chain.rs: the MPC rejects any other value.
+    expect(pureCircuits.ethereumCaip2Id()).toEqual(asciiPadded("eip155:1", CAIP2_ID_BYTES));
   });
 });
 

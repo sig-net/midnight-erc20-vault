@@ -9,7 +9,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { deriveMidnightResponseKey, formatSecp256k1PublicKey } from "@sig-net/midnight";
-import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
+import { deploySignetContract, type WalletRegistry } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";
 import { appendRepoDotEnv, loadRepoDotEnv } from "../env-file.ts";
@@ -165,8 +165,12 @@ export async function explainDustSpendRejection<T>(
  * Deploy the signet contract and record its address in the accumulator.
  *
  * @param env - The suite's env accumulator, mutated with the address.
+ * @param wallets - The pipeline's registry, holding the deployer wallet the funding step synced.
  */
-export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<void> {
+export async function deploySignetContractStep(
+  env: NodeJS.ProcessEnv,
+  wallets: WalletRegistry,
+): Promise<void> {
   if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
     logSkip(
       "deploy:signet-contract",
@@ -175,7 +179,7 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
     return;
   }
   const { contractAddress } = await explainDustSpendRejection("deploy:signet-contract", () =>
-    deploySignetContract(env),
+    deploySignetContract(env, wallets),
   );
   env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);

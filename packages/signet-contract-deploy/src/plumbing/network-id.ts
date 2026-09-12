@@ -5,7 +5,7 @@
 // adds the deploy-side helpers. Convention: a network id is ALWAYS named
 // `networkId` and ALWAYS typed `NetworkId`.
 import type { NetworkId as MidnightSDKNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
-import { MidnightNetwork } from "@sig-net/midnight";
+import { type DeployedNetwork, MidnightNetwork } from "@sig-net/midnight";
 
 export { MidnightNetwork };
 
@@ -30,4 +30,26 @@ export const NETWORK_IDS: readonly NetworkId[] = Object.values(MidnightNetwork);
 export function isLocalStandaloneNetwork(networkId: NetworkId): boolean {
   const undeployed: NetworkId = MidnightNetwork.Undeployed;
   return networkId === undeployed;
+}
+
+/** Every deployed network, the ones the SDK may publish counterparty values for. */
+export const DEPLOYED_NETWORKS: readonly DeployedNetwork[] = [
+  MidnightNetwork.Stagenet,
+  MidnightNetwork.Preview,
+  MidnightNetwork.Preprod,
+  MidnightNetwork.Mainnet,
+];
+
+/**
+ * Narrow a network id to a deployed network.
+ *
+ * @param networkId - The network to classify.
+ * @returns The same id as a {@link DeployedNetwork}, or undefined for the local standalone stack.
+ */
+export function deployedNetwork(networkId: NetworkId): DeployedNetwork | undefined {
+  const id: string = networkId;
+  return DEPLOYED_NETWORKS.find((network) => {
+    const candidate: string = network;
+    return candidate === id;
+  });
 }

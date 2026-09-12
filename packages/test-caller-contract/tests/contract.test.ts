@@ -15,6 +15,7 @@ import {
   decodeSignetLogEvents,
   MPCDestination,
   MPCSignatureAlgorithm,
+  pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   type RequestIdHex,
@@ -164,7 +165,7 @@ const CALLER_ADDRESS_BYTES = Uint8Array.from(Buffer.from(CALLER_ADDRESS, "hex"))
 const EXPECTED_TO = asciiPadded("signet-caller-e2e-to", 20);
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
-const EXPECTED_CAIP2 = asciiPadded("eip155:31337", 32);
+const EXPECTED_CAIP2 = signetCircuits.ethereumCaip2Id();
 const EXPECTED_PATH = asciiPadded("caller-path", 32);
 // Schemas are EXACT-width by protocol convention (never NUL-padded: the
 // MPC's raw reader recovers the width from the stored bytes). One request

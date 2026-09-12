@@ -132,7 +132,9 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
 2. First run: the setup generates root + the three role seeds into `.env`,
    then stops printing root's NIGHT address. Fund it at the network's faucet,
    which the stop message names (`MIDNIGHT_FAUCET_URL` overrides it).
-3. Rerun: root funds the roles (evenly split, or `FUND_CHILD_NIGHT` each) and
+3. Rerun: root funds the roles (a weighted split of root's balance: three
+   shares to the deployer, one to every other role, one kept by root, or
+   `FUND_CHILD_NIGHT` each) and
    the pipeline runs to the end. The fakenet responder needs its container
    endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).
 
@@ -179,7 +181,7 @@ the address vars, rerun the suite and watch the run for you.
 | `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `stagenet`, `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated per run |
-| `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance evenly) |
+| `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |

@@ -5,6 +5,7 @@
 // then root + epsilon*G with noble. Sharing no code with the implementation is
 // the point: these must not be regenerated from it.
 
+import { encodeBase58 } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,7 +15,8 @@ import {
   deriveEvmAddress,
   deriveMidnightResponseKey,
   EPSILON_DERIVATION_PREFIX,
-  MIDNIGHT_MAINNET_CHAIN_ID,
+  hexToBytes,
+  MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
   parseSecp256k1PublicKey,
 } from "../src/index.ts";
@@ -50,12 +52,21 @@ describe("deriveEvmAddress", () => {
     expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, path)).toBe(expected);
   });
 
+  // 04 || x || y expansion of MPC_PUBKEY: same key, same derived address.
+  const UNCOMPRESSED =
+    "0x0481e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243" +
+    "4fd9fffb61ad2ff6c6423cbd51e2d8d9535fef116d48dfeedce3276db6a53446";
+
   it("accepts the uncompressed form of the same root public key", () => {
-    // 04 || x || y expansion of MPC_PUBKEY: same key, same derived address.
-    const uncompressed =
-      "0x0481e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243" +
-      "4fd9fffb61ad2ff6c6423cbd51e2d8d9535fef116d48dfeedce3276db6a53446";
-    expect(deriveEvmAddress(uncompressed, CONTRACT_ADDRESS, "vault")).toBe(
+    expect(deriveEvmAddress(UNCOMPRESSED, CONTRACT_ADDRESS, "vault")).toBe(
+      "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
+    );
+  });
+
+  it("accepts the NEAR form of the same root public key", () => {
+    // secp256k1: + base58 of the raw X||Y point, the 04 byte dropped.
+    const nearForm = `secp256k1:${encodeBase58(hexToBytes(UNCOMPRESSED.slice(4)))}`;
+    expect(deriveEvmAddress(nearForm, CONTRACT_ADDRESS, "vault")).toBe(
       "0x3d4C6Ebe9016168397F6E15De5fd2412e2FB222C",
     );
   });
@@ -204,7 +215,7 @@ describe("agrees with the MPC's midnight-epsilon golden fixture", () => {
 
   it("pins the fixture's constants", () => {
     expect(EPSILON_DERIVATION_PREFIX).toBe("sig.network v2.0.0 epsilon derivation");
-    expect(MIDNIGHT_MAINNET_CHAIN_ID).toBe("midnight:mainnet");
+    expect(MIDNIGHT_CAIP2_ID).toBe("midnight:mainnet");
     expect(MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH).toBe("midnight response key");
   });
 

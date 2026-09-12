@@ -96,8 +96,10 @@ module Signet {
     // Specific destination chain Transaction parameters.
     txParamType: TxParamType; // Off-chain tag indicating what type txParams is set to.
     txParams: TxParams; // The generic transaction-param payload
-    caip2Id: Bytes<32>;       // Target chain in CAIP-2 form, e.g. "eip155:11155111"
-                              // (https://chainagnostic.org/CAIPs/caip-2)
+    caip2Id: Bytes<32>;       // The MPC's routing key for the target chain, in CAIP-2 form
+                              // (https://chainagnostic.org/CAIPs/caip-2). An Ethereum target
+                              // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
+                              // the network itself is txParams' chainId.
 
     // Serialisation Schemas.
     // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
@@ -351,6 +353,17 @@ module Signet {
 
   // ---- EVM Type2 Transaction Parameters --------------------------------------------------------------
 
+  // The caip2Id of every request targeting Ethereum, whichever Ethereum network the
+  // MPC node watches (mainnet, Sepolia or a local anvil: node configuration picks it).
+  // The MPC routes on this exact string (Chain::Ethereum in sig-net/mpc
+  // signet-primitives/src/chain.rs) and rejects the request for any other value,
+  // the network's own CAIP-2 id included. EvmType2TxParams.chainId is what binds
+  // the signed transaction to one network. Ethereum only: another EVM chain, such as
+  // BNB Smart Chain, is a separate chain to the MPC, never one of Ethereum's networks.
+  export pure circuit ethereumCaip2Id(): Bytes<32> {
+    return pad(32, "eip155:1");
+  }
+
   // The EVM transaction to be signed, decomposed into typed fields
   // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559) so the
   // requesting contract can enforce invariants field by field. The MPC
@@ -366,7 +379,7 @@ module Signet {
   // KEY: texual order of the fields in this structure must remain fixed as is as their order
   //      is relied upon for consistent hashing and decoding from ledger state.
   export struct EvmType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry> {
-    chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
+    chainId: Uint<64>;               // EIP-155 chain id of the network the signed tx is valid on
     nonce: Uint<64>;                 // account nonce of the derived sender
     maxPriorityFeePerGas: Uint<128>; // wei
     maxFeePerGas: Uint<128>;         // wei

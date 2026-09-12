@@ -10,10 +10,10 @@ import { buildDeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
 import { ensureFeeReady } from "./plumbing/funding.ts";
 import { getFaucetUrl } from "./plumbing/midnight-node-config.ts";
 import {
-  deriveAccountKeys,
+  estimateUnprovenTransactionFee,
   submitUnprovenTransaction,
   type TransactionIdentifier,
-  withSyncedWalletFacade,
+  WalletRegistry,
 } from "./plumbing/wallet.ts";
 import {
   createSignetContractPrivateState,
@@ -34,53 +34,62 @@ export interface SignetContractDeployment {
  * logged to the console. The contract takes no constructor arguments. Any
  * funded wallet can deploy, and nothing about the deployer is sealed. The wallet
  * needs NIGHT only: {@link ensureFeeReady} registers it for dust generation
- * and waits for the first spendable DUST when the wallet has none yet.
+ * and waits for the deploy transaction's fee in spendable DUST when the
+ * wallet holds less.
  *
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
+ * @param wallets - A registry to take the deployer wallet from, when the caller
+ *   keeps wallets open across steps. Without one, a private registry is opened
+ *   for this deploy and closed after it.
  * @returns The deployed contract address and deploy transaction id.
  * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT
  *   nor DUST: the error carries the wallet's NIGHT receive address to fund.
- * @throws {Error} If no spendable DUST appears after registering the wallet's
- *   NIGHT, or submission fails.
+ * @throws {Error} If the deploy's fee does not generate in spendable DUST after
+ *   registering the wallet's NIGHT, or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,
+  wallets?: WalletRegistry,
 ): Promise<SignetContractDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
-
-  const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
+  const registry = wallets ?? new WalletRegistry(deployConfig.midnightNodeConfig);
 
   console.log(
     `deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
   );
 
-  const { contractAddress, txId } = await withSyncedWalletFacade(
-    accountKeys,
-    deployConfig.midnightNodeConfig,
-    async (facade, state) => {
-      await ensureFeeReady(facade, accountKeys, state, networkId, getFaucetUrl(env, networkId));
+  try {
+    const { facade, keys } = await registry.wallet(deployConfig.deployerSeed, "deployer");
 
-      const deployTransaction = await buildDeployTransaction(
-        signetContractCompiledContract,
-        networkId,
-        accountKeys.shieldedSecretKeys.coinPublicKey,
-        createSignetContractPrivateState(),
-      );
-      console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
+    const deployTransaction = await buildDeployTransaction(
+      signetContractCompiledContract,
+      networkId,
+      keys.shieldedSecretKeys.coinPublicKey,
+      createSignetContractPrivateState(),
+    );
+    console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 
-      const submittedTxId = await submitUnprovenTransaction(
-        facade,
-        accountKeys,
-        deployTransaction.serializedTransaction,
-      );
-      return { contractAddress: deployTransaction.contractAddress, txId: submittedTxId };
-    },
-  );
+    // The one transaction this deploy submits, priced before anything is sent.
+    const fee = await estimateUnprovenTransactionFee(
+      facade,
+      deployTransaction.serializedTransaction,
+    );
+    console.log(`fee budget: 1 transaction at about ${String(fee)} DUST`);
+    const state = await facade.waitForSyncedState();
+    await ensureFeeReady(facade, keys, state, networkId, getFaucetUrl(env, networkId), fee);
 
-  console.log(`submitted deploy tx ${txId}`);
-  console.log(`deployed signet-contract at ${contractAddress}`);
-
-  return { contractAddress, txId };
+    const txId = await submitUnprovenTransaction(
+      facade,
+      keys,
+      deployTransaction.serializedTransaction,
+    );
+    const { contractAddress } = deployTransaction;
+    console.log(`submitted deploy tx ${txId}`);
+    console.log(`deployed signet-contract at ${contractAddress}`);
+    return { contractAddress, txId };
+  } finally {
+    if (wallets === undefined) await registry.close();
+  }
 }

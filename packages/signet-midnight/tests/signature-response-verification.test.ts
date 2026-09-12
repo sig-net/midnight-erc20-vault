@@ -7,11 +7,11 @@ import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
-  asciiPadded,
   evmAddressAbiWord,
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
+  pureCircuits,
   recoverSignatureResponseSigner,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
@@ -66,7 +66,7 @@ const REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: asciiPadded("eip155:11155111", 32),
+  caip2Id: pureCircuits.ethereumCaip2Id(),
   outputDeserializationSchema: new Uint8Array(34),
   respondSerializationSchema: new Uint8Array(34),
 };
