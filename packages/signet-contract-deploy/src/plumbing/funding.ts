@@ -1,17 +1,3 @@
-// Account funding primitives for the root-funds-children model. Fees are paid
-// in DUST, which only generates on NIGHT registered for dust generation, so a
-// wallet is fee-ready only once it holds NIGHT that is registered and has
-// generated spendable dust. One ROOT wallet (the local genesis mint, or a
-// faucet-funded seed on a deployed network) holds the funds and pays out to
-// the role wallets (deployer, invoker, mpc responder); the roles themselves
-// are generated per environment and topped up from root.
-//
-// These are mechanical primitives (read a balance, assert root is funded,
-// fund one child) over a WalletRegistry, so every wallet syncs once and is
-// reused across the checks and transfers. The pipeline that resolves/persists
-// seeds, decides the per-child amount, and prints addresses lives in the
-// integration-tests setup.
-
 import { formatDust } from "./format-dust.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
@@ -87,15 +73,14 @@ export async function readAccountFunding(
 }
 
 /**
- * A wallet is fee-ready when it holds NIGHT and that NIGHT has generated at
- * least `minimumDust` of spendable dust.
+ * A wallet is fee-ready when its spendable DUST covers `minimumDust`.
  *
  * @param funding - The wallet's measured funding.
  * @param minimumDust - The spendable DUST that counts as ready, in base units, 1 (any dust at all) by default.
  * @returns Whether the wallet can pay fees right now.
  */
 export function isFeeReady(funding: AccountFunding, minimumDust = 1n): boolean {
-  return funding.night > 0n && funding.dust >= minimumDust;
+  return funding.dust >= minimumDust;
 }
 
 /**
@@ -233,14 +218,14 @@ export async function assertRootFunded(
  * Bring one child wallet to fee-ready by topping it up from root: if it holds
  * no NIGHT, transfer `amount` from root and wait for the child to see it, then
  * finish through {@link ensureFeeReady}. A child that already holds NIGHT but
- * no dust yet is only registered and waited on (no transfer). Call only for a
- * child that is not already fee-ready.
+ * no dust yet is registered and waited on. A sufficient DUST balance returns immediately.
  *
  * @param wallets - The registry holding both wallets.
  * @param rootSeed - The funding wallet's seed.
  * @param childSeed - The child wallet's seed.
  * @param childLabel - The child's role name, for the sync log.
  * @param amount - NIGHT to transfer when the child holds none, in base units.
+ * @param minimumDust - Required spendable DUST in SPECKs.
  * @returns The child's post-funding snapshot.
  * @throws {Error} If root cannot cover the transfer, or dust never appears in time.
  */
@@ -250,11 +235,19 @@ export async function fundChildFromRoot(
   childSeed: string,
   childLabel: string,
   amount: bigint,
+  minimumDust = 1n,
 ): Promise<AccountFunding> {
   const { networkId } = wallets.config;
   const child = await wallets.wallet(childSeed, childLabel);
   const childAddresses = deriveAddresses(child.keys, networkId);
   let state = await child.facade.waitForSyncedState();
+  const available: bigint = state.dust.balance(new Date());
+  if (available >= minimumDust) {
+    console.log(
+      `${childLabel}: available ${formatDust(available)} DUST, required ${formatDust(minimumDust)} DUST, funding skipped`,
+    );
+    return { addresses: childAddresses, night: totalNight(state), dust: available };
+  }
 
   if (totalNight(state) === 0n) {
     const root = await wallets.wallet(rootSeed, ROOT_LABEL);
@@ -279,6 +272,13 @@ export async function fundChildFromRoot(
       `child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`,
     );
   }
-  const dust = await ensureFeeReady(child.facade, child.keys, state, networkId);
+  const dust = await ensureFeeReady(
+    child.facade,
+    child.keys,
+    state,
+    networkId,
+    undefined,
+    minimumDust,
+  );
   return { addresses: childAddresses, night: totalNight(state), dust };
 }

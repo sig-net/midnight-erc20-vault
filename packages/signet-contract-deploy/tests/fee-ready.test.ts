@@ -38,7 +38,7 @@ describe("isFeeReady", () => {
       name: "dust without NIGHT",
       funding: { addresses: ADDRESSES, night: 0n, dust: 5n },
       minimumDust: undefined,
-      ready: false,
+      ready: true,
     },
     {
       name: "dust exactly at the minimum",
