@@ -12,6 +12,7 @@
 // seeds, decides the per-child amount, and prints addresses lives in the
 // integration-tests setup.
 
+import { formatDust } from "./format-dust.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import {
@@ -145,6 +146,7 @@ export class WalletUnfundedError extends Error {
  *   NIGHT receive address the no-NIGHT error prints for faucet funding.
  * @param faucetUrl - The network's faucet for the no-NIGHT hint, when one is known.
  * @param minimumDust - The spendable DUST to require, in base units, 1 (any dust at all) by default.
+ * @param timeoutMs - Spendable DUST wait deadline in milliseconds, after registration.
  * @returns The wallet's spendable DUST balance, at least `minimumDust`.
  * @throws {WalletUnfundedError} If the wallet holds no NIGHT and less than `minimumDust` of DUST.
  * @throws {Error} If the dust stays below `minimumDust` for the wait's timeout (see
@@ -157,6 +159,7 @@ export async function ensureFeeReady(
   networkId: NetworkId,
   faucetUrl?: string,
   minimumDust = 1n,
+  timeoutMs?: number,
 ): Promise<bigint> {
   const dust = state.dust.balance(new Date());
   if (totalNight(state) === 0n) {
@@ -169,9 +172,9 @@ export async function ensureFeeReady(
   }
   if (dust >= minimumDust) return dust;
   console.log(
-    `waiting for spendable DUST (have ${String(dust)}, need at least ${String(minimumDust)})...`,
+    `waiting for spendable DUST (have ${formatDust(dust)}, need at least ${formatDust(minimumDust)})...`,
   );
-  return waitForSpendableDust(facade, minimumDust);
+  return waitForSpendableDust(facade, minimumDust, timeoutMs);
 }
 
 // A freshly composed local stack has a window where the indexer reports a

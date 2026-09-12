@@ -9,6 +9,7 @@ export * from "./deploy-signet-contract.ts";
 export * from "./plumbing/counterparties.ts";
 export * from "./plumbing/deploy.ts";
 export * from "./plumbing/env.ts";
+export * from "./plumbing/format-dust.ts";
 export * from "./plumbing/funding.ts";
 export * from "./plumbing/midnight-node-config.ts";
 export * from "./plumbing/network-id.ts";

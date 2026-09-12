@@ -29,6 +29,7 @@ import {
   UnshieldedWallet,
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
 
+import { formatDust } from "./format-dust.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import { parseSeed } from "./seed.ts";
@@ -282,11 +283,13 @@ export async function waitForSpendableDust(
     if (dust >= minimumDust) return dust;
     if (Date.now() >= deadline) {
       throw new Error(
-        `spendable DUST reached ${String(dust)} of the ${String(minimumDust)} needed after ${String(timeoutMs)} ms: ` +
+        `spendable DUST reached ${formatDust(dust)} of the ${formatDust(minimumDust)} needed after ${String(timeoutMs)} ms: ` +
           "is the wallet's NIGHT registered for dust generation, and is there enough of it to generate the fees?",
       );
     }
-    console.log(`spendable DUST ${String(dust)} of the ${String(minimumDust)} needed, waiting...`);
+    console.log(
+      `spendable DUST ${formatDust(dust)} of the ${formatDust(minimumDust)} needed, waiting...`,
+    );
     await new Promise((resolve) => setTimeout(resolve, DUST_POLL_INTERVAL_MS));
   }
 }
@@ -339,11 +342,13 @@ async function balanceWhileDustGenerates<T>(
         );
         await new Promise((resolve) => setTimeout(resolve, BALANCE_RETRY_INTERVAL_MS));
         const state = await facade.waitForSyncedState();
-        console.log(`wallet resynced, spendable DUST: ${String(state.dust.balance(new Date()))}`);
+        console.log(
+          `wallet resynced, spendable DUST: ${formatDust(state.dust.balance(new Date()))}`,
+        );
         continue;
       }
       console.log(
-        `the wallet holds ${String(shortfall.have)} of the ${String(shortfall.need)} DUST the fee needs, waiting for the rest to generate`,
+        `the wallet holds ${formatDust(shortfall.have)} of the ${formatDust(shortfall.need)} DUST the fee needs, waiting for the rest to generate`,
       );
       await waitForSpendableDust(facade, shortfall.need, deadline - Date.now());
     }
@@ -495,7 +500,7 @@ export async function registerNightForDustGeneration(
     const shortfall = dustShortfall(error);
     if (shortfall === undefined) throw error;
     console.log(
-      `the NIGHT has generated ${String(shortfall.have)} of the ${String(shortfall.need)} DUST its registration costs, waiting...`,
+      `the NIGHT has generated ${formatDust(shortfall.have)} of the ${formatDust(shortfall.need)} DUST its registration costs, waiting...`,
     );
     await facade.waitForGeneratedDust(unregistered, shortfall.need, {
       timeoutMs: GENERATED_DUST_TIMEOUT_MS,
