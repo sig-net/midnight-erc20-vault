@@ -33,7 +33,7 @@
     }
   },
   "dependencies": {
-    "@effect/platform-node": "^0.107.0",
+    "@effect/platform-node": "^0.108.2",
     "@midnight-ntwrk/compact-js": "2.5.5-rc.7",
     "@midnight-ntwrk/compact-js-node": "2.5.5-rc.7",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
@@ -49,13 +49,14 @@
     "@scure/bip39": "^2.2.0",
     "@sig-net/midnight": "^0.21.0",
     "@sig-net/midnight-contract": "^0.21.0",
-    "effect": "^3.21.4"
+    "effect": "^3.22.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^5.0.0",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9"
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   }
 }

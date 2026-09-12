@@ -24,9 +24,9 @@ import {
   getMidnightNodeConfig,
   isFeeReady,
   isLocalStandaloneNetwork,
-  type MidnightNodeConfig,
   readAccountFunding,
   type WalletAddresses,
+  type WalletRegistry,
   WalletUnfundedError,
 } from "@sig-net/midnight-contract-deploy";
 
@@ -35,24 +35,31 @@ import { appendRepoDotEnv } from "../env-file.ts";
 import { banner, logSkip } from "../output.ts";
 import { explainDustSpendRejection } from "./steps.ts";
 
-/** One wallet role: its display label and the env var holding its seed. */
-interface RoleWallet {
+/**
+ * One wallet role: its display label, the env var holding its seed, and the
+ * shares of root's NIGHT the automatic split gives it (see {@link fundingShare}).
+ */
+export interface RoleWallet {
   readonly label: string;
   readonly envVar: string;
+  readonly shares: bigint;
 }
 
-/** The funding root. Does no test work; holds NIGHT and pays the roles out. */
-const ROOT: RoleWallet = { label: "root", envVar: "ROOT_SEED" };
+/** The funding root. Does no test work: it holds NIGHT, pays the roles out and keeps one share for its own fees. */
+const ROOT: RoleWallet = { label: "root", envVar: "ROOT_SEED", shares: 1n };
 
 /**
  * The role wallets funded from root, in setup order: `deployer` deploys the
  * contracts, `invoker` drives the caller contract's circuits, `mpc responder`
  * is the fakenet responder's fee-paying wallet ({@link MPC_RESPONDER wallet}).
+ * The deployer weighs three shares: it pays one transaction per deploy and,
+ * for a split deploy, one per deferred circuit, where every other role pays
+ * one or two.
  */
 const CHILDREN: readonly RoleWallet[] = [
-  { label: "deployer", envVar: "DEPLOYER_SEED" },
-  { label: "invoker", envVar: "INVOKER_SEED" },
-  { label: "mpc responder", envVar: "MPC_RESPONDER_SEED" },
+  { label: "deployer", envVar: "DEPLOYER_SEED", shares: 3n },
+  { label: "invoker", envVar: "INVOKER_SEED", shares: 1n },
+  { label: "mpc responder", envVar: "MPC_RESPONDER_SEED", shares: 1n },
 ];
 
 /**
@@ -123,18 +130,29 @@ function logFundedPass(label: string, funding: AccountFunding): void {
 }
 
 /**
- * The per-child NIGHT transfer amount. `FUND_CHILD_NIGHT` (base units) pins it;
- * otherwise root's balance is split evenly across the children that need
- * funding, keeping one share in root (for its own transfer fees), so the split
- * adapts to however much the faucet delivered.
+ * One share of root's NIGHT: the balance divided across the shares of the
+ * children that need funding plus root's own, so the split adapts to however
+ * much the faucet delivered.
+ *
+ * @param rootNight - Root's NIGHT balance in base units.
+ * @param unfunded - The children that still need funding.
+ * @returns The NIGHT one share is worth, in base units.
+ */
+export function fundingShare(rootNight: bigint, unfunded: readonly RoleWallet[]): bigint {
+  return rootNight / unfunded.reduce((sum, role) => sum + role.shares, ROOT.shares);
+}
+
+/**
+ * The NIGHT to transfer to one child. `FUND_CHILD_NIGHT` (base units) pins it
+ * for every child. Otherwise the child receives its shares of root's balance.
  *
  * @param env - The environment to read `FUND_CHILD_NIGHT` from.
- * @param rootNight - Root's NIGHT balance in base units.
- * @param unfundedCount - How many children still need funding.
- * @returns The NIGHT to send each child, in base units.
+ * @param share - The NIGHT one share is worth (see {@link fundingShare}).
+ * @param child - The child to fund.
+ * @returns The NIGHT to send the child, in base units.
  * @throws {Error} If `FUND_CHILD_NIGHT` is set but is not a non-negative integer.
  */
-function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount: number): bigint {
+export function perChildAmount(env: NodeJS.ProcessEnv, share: bigint, child: RoleWallet): bigint {
   const override = env.FUND_CHILD_NIGHT?.trim();
   if (override) {
     if (!/^\d+$/.test(override)) {
@@ -144,7 +162,7 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
     }
     return BigInt(override);
   }
-  return rootNight / BigInt(unfundedCount + 1);
+  return share * child.shares;
 }
 
 /**
@@ -156,38 +174,55 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
  * wallets are only checked.
  *
  * @param env - The suite's env accumulator (seeds already resolved).
+ * @param wallets - The pipeline's registry: every role wallet syncs once here and stays open.
  * @throws {WalletUnfundedError} To halt the run when root needs faucet funding.
  */
-export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void> {
-  const config = getMidnightNodeConfig(env);
-  const faucetUrl = getFaucetUrl(env, config.networkId);
+export async function ensureWalletsFunded(
+  env: NodeJS.ProcessEnv,
+  wallets: WalletRegistry,
+): Promise<void> {
+  const faucetUrl = getFaucetUrl(env, wallets.config.networkId);
 
-  const root = await preflightRoot(config, requireEnv(env, ROOT.envVar), faucetUrl);
+  const root = await preflightRoot(wallets, requireEnv(env, ROOT.envVar), faucetUrl);
   logFundedPass("root", root);
 
   const checked = [];
   for (const child of CHILDREN) {
     checked.push({
       child,
-      funding: await readAccountFunding(config, requireEnv(env, child.envVar)),
+      funding: await readAccountFunding(wallets, requireEnv(env, child.envVar), child.label),
     });
   }
-  const unfundedCount = checked.filter((entry) => !isFeeReady(entry.funding)).length;
-  const amount = perChildAmount(env, root.night, unfundedCount);
+  const unfunded = checked.filter(({ funding }) => !isFeeReady(funding)).map(({ child }) => child);
+  const share = fundingShare(root.night, unfunded);
+  if (unfunded.length > 0) {
+    console.log(
+      `funding plan: root holds ${String(root.night)} NIGHT, one share is ${String(share)}, root keeps ${String(ROOT.shares)}` +
+        (env.FUND_CHILD_NIGHT ? " (FUND_CHILD_NIGHT pins every child). " : ". ") +
+        unfunded
+          .map(
+            (child) =>
+              `${child.label}: ${String(perChildAmount(env, share, child))} (${String(child.shares)} share(s))`,
+          )
+          .join(", "),
+    );
+  }
 
   for (const { child, funding } of checked) {
     if (isFeeReady(funding)) {
       logFundedPass(child.label, funding);
       continue;
     }
+    const amount = perChildAmount(env, share, child);
     console.log(
       `${child.label} not fee-ready (NIGHT ${String(funding.night)}, DUST ${String(funding.dust)}) — funding ${String(amount)} from root`,
     );
     const funded = await explainDustSpendRejection(`fund ${child.label}`, () =>
       fundChildFromRoot(
-        config,
+        wallets,
         requireEnv(env, ROOT.envVar),
         requireEnv(env, child.envVar),
+        child.label,
         amount,
       ),
     );
@@ -198,19 +233,19 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
 /**
  * Root preflight, surfacing {@link WalletUnfundedError}'s stop message before rethrowing.
  *
- * @param config - The endpoints to measure root's funding against.
+ * @param wallets - The registry holding the root wallet.
  * @param rootSeed - The root wallet's seed.
  * @param faucetUrl - The network's faucet, included in the stop message.
  * @returns Root's measured funding, once it passes.
  * @throws {WalletUnfundedError} When root holds no spendable funds.
  */
 async function preflightRoot(
-  config: MidnightNodeConfig,
+  wallets: WalletRegistry,
   rootSeed: string,
   faucetUrl: string | undefined,
 ): Promise<AccountFunding> {
   try {
-    return await assertRootFunded(config, rootSeed, faucetUrl);
+    return await assertRootFunded(wallets, rootSeed, faucetUrl);
   } catch (error) {
     if (error instanceof WalletUnfundedError) {
       banner(["ROOT WALLET NEEDS FUNDING — stopping here", "", ...error.message.split("\n")]);

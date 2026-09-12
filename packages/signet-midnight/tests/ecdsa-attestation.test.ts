@@ -9,6 +9,7 @@
 // (`verifyRespondBidirectionalSignature`) runs the same table and must agree
 // with the circuit on every row: a post it accepts is a post that proves.
 
+import { encodeBase58, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
 // Package-internal (deliberately absent from both entry points), tested via
@@ -19,6 +20,7 @@ import {
   bytesToBigintBE,
   formatSecp256k1PublicKey,
   type MpcSignature,
+  normaliseSecp256k1PublicKey,
   parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
   type RespondBidirectionalEvent,
@@ -401,16 +403,29 @@ interface ParseCase {
 }
 
 const UNCOMPRESSED_HEX = formatSecp256k1PublicKey(MPC_PUBLIC);
+const COMPRESSED_HEX = SigningKey.computePublicKey(UNCOMPRESSED_HEX, true);
+// NEAR's spelling: `secp256k1:` + base58 of the raw X||Y point (no 04 byte).
+const NEAR_FORM = `secp256k1:${encodeBase58(
+  Uint8Array.from([...bigintToBytes32BE(MPC_PUBLIC.x), ...bigintToBytes32BE(MPC_PUBLIC.y)]),
+)}`;
 
 const PARSE_OK_CASES: ParseCase[] = [
   { name: "uncompressed SEC1 hex with 0x prefix", value: UNCOMPRESSED_HEX },
   { name: "uncompressed SEC1 hex without prefix", value: UNCOMPRESSED_HEX.slice(2) },
+  { name: "compressed SEC1 hex with 0x prefix", value: COMPRESSED_HEX },
+  { name: "compressed SEC1 hex without prefix", value: COMPRESSED_HEX.slice(2) },
+  { name: "NEAR secp256k1:<base58>", value: NEAR_FORM },
+  { name: "surrounding whitespace", value: `  ${NEAR_FORM}\n` },
 ];
 
 const PARSE_REJECT_CASES: ParseCase[] = [
+  { name: "a blank value", value: "   " },
   { name: "a non-hex string", value: "not-a-key" },
   { name: "a truncated key", value: UNCOMPRESSED_HEX.slice(0, 20) },
   { name: "an off-curve point", value: `0x04${"11".repeat(64)}` },
+  { name: "NEAR text that is not base58", value: "secp256k1:0OIl" },
+  { name: "a NEAR key decoding wider than 64 bytes", value: `secp256k1:${"z".repeat(100)}` },
+  { name: "an unknown prefix", value: `ed25519:${NEAR_FORM.slice(10)}` },
 ];
 
 describe("parseSecp256k1PublicKey", () => {
@@ -424,5 +439,30 @@ describe("parseSecp256k1PublicKey", () => {
 
   it("round-trips through formatSecp256k1PublicKey", () => {
     expect(parseSecp256k1PublicKey(formatSecp256k1PublicKey(MPC_PUBLIC))).toEqual(MPC_PUBLIC);
+  });
+});
+
+// The stagenet MPC root key as the MPC operators hand it out (NEAR form) and
+// its canonical spelling: a fixed vector, computed independently of the
+// parser, so the canonicaliser cannot drift with it.
+const STAGENET_NEAR_FORM =
+  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+const STAGENET_CANONICAL =
+  "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a";
+const STAGENET_COMPRESSED = "0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61";
+
+describe("normaliseSecp256k1PublicKey", () => {
+  it.each([
+    { name: "NEAR secp256k1:<base58>", value: STAGENET_NEAR_FORM },
+    { name: "the canonical spelling itself", value: STAGENET_CANONICAL },
+    { name: "uncompressed SEC1 hex without prefix", value: STAGENET_CANONICAL.slice(2) },
+    { name: "compressed SEC1 hex", value: STAGENET_COMPRESSED },
+    { name: "uppercase hex", value: `0x${STAGENET_CANONICAL.slice(2).toUpperCase()}` },
+  ] satisfies ParseCase[])("canonicalises $name", ({ value }) => {
+    expect(normaliseSecp256k1PublicKey(value)).toBe(STAGENET_CANONICAL);
+  });
+
+  it.each(PARSE_REJECT_CASES)("rejects $name", ({ value }) => {
+    expect(() => normaliseSecp256k1PublicKey(value)).toThrow();
   });
 });

@@ -100,7 +100,7 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 
 > **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
 >
-> **caip2ChainId** is the id of the chain the request originates from, in [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) form. For signature requests made on Midnight it is the Midnight variant (currently `midnight:testnet`). It is not the target chain id carried in the request record's `caip2Id` field.
+> **caip2ChainId** is the [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) id the MPC assigns to requests originating from Midnight contracts. It is the fixed literal `midnight:mainnet` (`MIDNIGHT_CAIP2_ID` in `@sig-net/midnight`) on every Midnight network, so a contract derives the same keys wherever it is deployed. The request record's `caip2Id` field is a different value: the MPC's routing key for the TARGET chain (see [EVM Type 2 Transactions and ABI Calldata Words](#evm-type-2-transactions-and-abi-calldata-words)).
 
 ## Handling Failure
 
@@ -284,7 +284,7 @@ const expectedSigner = deriveEvmAddress(
 );
 ```
 
-> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey` (placeholders until each network's key is published).
+> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's is published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
 >
 > **signetContractAddress** is the address of the deployed Signet singleton contract. On a local stack the same setup deploys a fresh singleton, prints the address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getSignetContractAddress` (placeholders until each deployment lands).
 
@@ -356,6 +356,13 @@ const expectedSigner = deriveEvmAddress(
 ## EVM Type 2 Transactions and ABI Calldata Words
 
 An `EvmType2TxParams` request decomposes the EVM transaction into typed fields, so your contract can enforce each field in-circuit. Its optional `calldata` is an `EvmCalldata<maxWords>`: the 4-byte function selector plus a list of 32-byte ABI words, per the [Solidity ABI spec](https://docs.soliditylang.org/en/latest/abi-spec.html). Slots past `noWords` are unused capacity and never reach the transaction.
+
+The request names its target network in two fields, for two different readers:
+
+- **`txParams.chainId`** is the EIP-155 chain id the signed transaction is valid on: `11155111` for Sepolia, `31337` for a bare local anvil. It is the only field that differs between Ethereum networks.
+- **`caip2Id`** is the MPC's routing key for the target chain. For Ethereum it is `eip155:1` on every Ethereum network, whichever one (mainnet, Sepolia or a local anvil) the MPC node is configured to watch. Build it with the module's `ethereumCaip2Id()` circuit (`pureCircuits.ethereumCaip2Id()` off chain). The MPC routes on that exact string and rejects the request for any other value, the network's own CAIP-2 id (`eip155:11155111`) included, so never derive it from the chain id.
+
+`ethereumCaip2Id()` is for Ethereum targets only. Another EVM chain, such as BNB Smart Chain (`eip155:56`), is a separate chain to the MPC, never one of Ethereum's networks.
 
 Every word must be stored in canonical ABI form (big-endian). The MPC signs a transaction whose calldata is exactly `selector || words[0..noWords]`, byte for byte. A word stored in any other form becomes a signed transaction that calls the foreign contract with garbage arguments. Compact's integer casts are little-endian, so do not hand-roll the byte order. Build every word with the module's helper circuits, and read words back with the matching readers.
 
@@ -550,14 +557,14 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
 | `@sig-net/*` npm packages | 0.21.0 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.18.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.22.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
 
-**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.18.0` is built against 0.21.0-rc.2 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.22.0` is built against 0.21.0-rc.10 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
 # Packages
 

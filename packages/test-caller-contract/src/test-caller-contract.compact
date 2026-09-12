@@ -127,7 +127,7 @@ export circuit submitSignatureRequest(
     pad(64, ""),
     TxParamType.evmType2,
     txParams,
-    pad(32, "eip155:31337"),
+    ethereumCaip2Id(),
     schema,
     schema
   );
@@ -198,7 +198,7 @@ export circuit submitIsEvenRequest(
     pad(64, ""),
     TxParamType.evmType2,
     txParams,
-    pad(32, "eip155:31337"),
+    ethereumCaip2Id(),
     schema,
     schema
   );
@@ -264,7 +264,7 @@ export circuit submitCheckAndDoubleRequest(
     pad(64, ""),
     TxParamType.evmType2,
     txParams,
-    pad(32, "eip155:31337"),
+    ethereumCaip2Id(),
     schema,
     schema
   );

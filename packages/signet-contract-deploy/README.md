@@ -21,6 +21,8 @@ Everything is read from the environment:
 | `NETWORK_ID` | Target network: `undeployed` (local stack, the default), `stagenet`, `preview`, `preprod` or `mainnet`. Selects the default endpoints. |
 | `MIDNIGHT_NODE_URL`, `MIDNIGHT_NODE_INDEXER_URL`, `MIDNIGHT_NODE_INDEXER_WS_URL`, `MIDNIGHT_NODE_PROOF_SERVER_URL` | Optional per-endpoint overrides of the network defaults. |
 | `DEPLOYER_SEED` | The deploying wallet's seed (hex or mnemonic). On the local stack it defaults to the pre-funded genesis mint wallet. |
+| `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` | Optional on a deployed network: the signet singleton a requester contract seals at deploy. `resolveSignetContractAddress` takes the singleton `@sig-net/midnight` publishes for the network when it is unset, and refuses a set value that disagrees with it. The local stack publishes none, so there it names the singleton you deployed. |
+| `MPC_SECP256K1_PUBKEY` | Optional on a deployed network: the MPC root public key a requester's derived accounts start from, in SEC1 hex or NEAR `secp256k1:<base58>` form. `resolveMpcRootPublicKey` takes the key `@sig-net/midnight` publishes for the network when it is unset, refuses a set value that disagrees with it, and returns `0x04…` uncompressed hex either way. |
 | `MIDNIGHT_FAUCET_URL` | The faucet named in the unfunded-wallet hint. Built in per network: stagenet `https://faucet.stagenet.shielded.tools`, preview `https://midnight-tmnight-preview.nethermind.dev`, preprod `https://midnight-tmnight-preprod.nethermind.dev`. Set it to override one of those, or to name a faucet for a network without one. |
 
 ## Usage
@@ -32,6 +34,8 @@ const { contractAddress, txId } = await deploySignetContract(process.env);
 ```
 
 The generic plumbing (network config, wallets, funding, transaction submission) is exported from the package root as well, for deploy scripts of other Compact contracts.
+
+A pipeline that touches several wallets, or one wallet several times, holds them in a `WalletRegistry`: the first request for a seed builds, starts and fully syncs its facade (on a deployed network a fresh facade scans the chain from nothing, and the sync logs a heartbeat with each sub-wallet's position every ten seconds), every later request returns the same running facade, and `close()` stops them all once. `deploySignetContract(env, wallets)` and the funding primitives (`assertRootFunded`, `readAccountFunding`, `fundChildFromRoot`) take the registry. Without one, `deploySignetContract` opens a private registry for its single wallet and closes it after.
 
 ## Deploying from CI
 

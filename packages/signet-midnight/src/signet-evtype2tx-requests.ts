@@ -71,7 +71,7 @@ export interface EvmAccessListEntry {
  * leading slots are real.
  */
 export interface EvmType2TxParams {
-  /** EVM chain id (also expressed in the record's `caip2Id`). */
+  /** EIP-155 chain id of the network the signed transaction is valid on. */
   chainId: bigint;
   /** Account nonce of the MPC-derived sender address. */
   nonce: bigint;
