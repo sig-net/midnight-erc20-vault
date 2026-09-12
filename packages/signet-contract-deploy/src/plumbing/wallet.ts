@@ -294,16 +294,6 @@ export async function waitForSpendableDust(
   }
 }
 
-// Balancing throws Wallet.InsufficientFunds ("could not balance dust") while
-// the paying wallet's DUST is still generating: a young local chain accrues
-// it block by block from the genesis NIGHT, and a freshly registered wallet
-// on a deployed network starts from its first few units. Building the recipe
-// runs the ledger's fee dry run in WebAssembly, so a refusal that names its
-// shortfall is answered by polling the spendable DUST up to that amount and
-// building once more, and one that names no amount by rebuilding every
-// BALANCE_RETRY_INTERVAL_MS. A wallet with nothing to generate from fails
-// fast in ensureFeeReady (funding.ts) before any of this, so the bounded
-// retry cannot mask real underfunding.
 const BALANCE_RETRY_INTERVAL_MS = 15_000;
 const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
 
@@ -333,8 +323,9 @@ async function balanceWhileDustGenerates<T>(
     } catch (error) {
       const message = String(error);
       const insufficientDust =
-        message.includes("InsufficientFunds") || message.includes("could not balance dust");
+        message.includes("could not balance dust") || dustShortfall(error) !== undefined;
       if (!insufficientDust || Date.now() >= deadline) throw error;
+      console.warn("DUST fee balancing failed, retrying:", error);
       const shortfall = dustShortfall(error);
       if (shortfall === undefined) {
         console.log(
@@ -441,13 +432,28 @@ export async function transferNight(
     UnshieldedAddress,
     networkId,
   );
-  const recipe = await balanceWhileDustGenerates(facade, () =>
-    facade.transferTransaction(
-      [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
-      { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
-      { ttl: new Date(Date.now() + RECIPE_TTL_MS), payFees: true },
-    ),
+  const ttl = new Date(Date.now() + RECIPE_TTL_MS);
+  const secretKeys = {
+    shieldedSecretKeys: keys.shieldedSecretKeys,
+    dustSecretKey: keys.dustSecretKey,
+  };
+  // Keep the reserved NIGHT inputs in one transfer throughout fee retries.
+  const transfer = await facade.transferTransaction(
+    [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
+    secretKeys,
+    { ttl, payFees: false },
   );
+  const recipe = await balanceWhileDustGenerates(facade, () =>
+    facade.balanceUnprovenTransaction(transfer.transaction, secretKeys, {
+      ttl,
+      tokenKindsToBalance: ["dust"],
+    }),
+  ).catch(async (error: unknown) => {
+    await facade.revert(transfer).catch((revertError: unknown) => {
+      console.error("Failed to release NIGHT transfer inputs:", revertError);
+    });
+    throw error;
+  });
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   const finalized = await facade.finalizeRecipe(signed);
   return facade.submitTransaction(finalized);
